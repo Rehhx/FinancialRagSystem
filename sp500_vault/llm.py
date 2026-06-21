@@ -156,11 +156,14 @@ def score_sentiment(ticker: str, name: str, headlines: list[str]) -> dict:
 
 _RAG_SYSTEM = (
     "You answer questions about an S&P 500 (pilot: semiconductor + hardware) research "
-    "vault. Each company has a note with quant metrics, an LLM sentiment score, and "
-    "explicit supplier/customer/competitor relationships rendered as [[wikilinks]]. "
+    "vault. Each company has a note with quant metrics, an LLM sentiment score, "
+    "explicit supplier/customer/competitor relationships rendered as [[wikilinks]], and "
+    "a 'Recent News' section of dated headlines. "
     "Use the relationship structure to reason about connected exposure (e.g. who is "
-    "exposed to a given company's guidance). Ground every claim in the provided context "
-    "and cite the ticker/section it came from. If the context is insufficient, say so.\n"
+    "exposed to a given company's guidance), and cite recent headlines (with their "
+    "dates) when the question is about news or catalysts. Ground every claim in the "
+    "provided context and cite the ticker/section it came from. If the context is "
+    "insufficient, say so.\n"
     "IMPORTANT: when the context includes a pre-computed 'Graph · ...' summary (an "
     "aggregate value, ranking, count, or filtered set), report that value and that "
     "membership EXACTLY as given — do not recompute, re-sum, or drop/add members "

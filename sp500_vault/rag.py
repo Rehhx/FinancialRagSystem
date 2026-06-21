@@ -73,8 +73,29 @@ def _chunk_note(text: str) -> tuple[dict, list[tuple[str, str]]]:
     return meta, chunks
 
 
+def _news_digest(ticker: str, articles: list[dict], limit: int = 12) -> str:
+    """A compact, retrievable digest of a ticker's recent headlines."""
+    lines = []
+    for a in articles[:limit]:
+        when = (a.get("datetime") or "")[:10]
+        src = a.get("source") or a.get("provider") or ""
+        head = (a.get("headline") or "").strip()
+        if not head:
+            continue
+        line = f"- [{when}] {head}" + (f" ({src})" if src else "")
+        summ = (a.get("summary") or "").strip()
+        if summ:
+            line += f" — {summ[:200]}"
+        lines.append(line)
+    return f"{ticker} — Recent News ({len(lines)} headlines)\n" + "\n".join(lines)
+
+
 def _documents() -> tuple[list[Document], list[str]]:
-    """Build LangChain Documents (+ stable ids) from the main vault notes."""
+    """Build LangChain Documents (+ stable ids) from the vault notes, plus a
+    per-ticker recent-news chunk so the RAG can answer news-cycle questions
+    (headlines are fetched for free and only embedded when they change)."""
+    from . import sentiment
+
     docs: list[Document] = []
     ids: list[str] = []
     for path in sorted(config.VAULT_DIR.glob("*.md")):
@@ -82,6 +103,8 @@ def _documents() -> tuple[list[Document], list[str]]:
             continue
         meta, chunks = _chunk_note(path.read_text(encoding="utf-8"))
         ticker = meta.get("ticker", path.stem)
+        sector = meta.get("sector", "Unknown")
+        sentiment_label = meta.get("sentiment_label", "Neutral")
         seen: dict[str, int] = {}
         for title, body in chunks:
             n = seen.get(title, 0)
@@ -89,14 +112,20 @@ def _documents() -> tuple[list[Document], list[str]]:
             uid = f"{ticker}:{title}" + (f"#{n}" if n else "")
             docs.append(Document(
                 page_content=f"{ticker} — {title}\n{body}",
-                metadata={
-                    "ticker": ticker,
-                    "sector": meta.get("sector", "Unknown"),
-                    "sentiment_label": meta.get("sentiment_label", "Neutral"),
-                    "section": title,
-                },
+                metadata={"ticker": ticker, "sector": sector,
+                          "sentiment_label": sentiment_label, "section": title},
             ))
             ids.append(uid)
+
+        # Recent-news chunk from the stored articles (one per ticker).
+        articles = (sentiment.load(ticker) or {}).get("articles") or []
+        if articles:
+            docs.append(Document(
+                page_content=_news_digest(ticker, articles),
+                metadata={"ticker": ticker, "sector": sector,
+                          "sentiment_label": sentiment_label, "section": "News"},
+            ))
+            ids.append(f"{ticker}:News")
     return docs, ids
 
 

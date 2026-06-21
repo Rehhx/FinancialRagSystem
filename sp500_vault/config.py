@@ -77,8 +77,9 @@ SEC_USER_AGENT = os.getenv(
 SENTIMENT_LOOKBACK_DAYS = int(os.getenv("SENTIMENT_LOOKBACK_DAYS", "14"))
 SENTIMENT_MAX_ARTICLES = int(os.getenv("SENTIMENT_MAX_ARTICLES", "10"))
 # Which news providers to aggregate, in priority order (comma-separated). Unknown
-# names or providers with no key are skipped. Finnhub stays primary.
-NEWS_PROVIDERS = os.getenv("NEWS_PROVIDERS", "finnhub,marketaux,newsapi,alphavantage")
+# names or keyed providers with no key are skipped. Free RSS feeds (googlenews,
+# yahoo) need no key and have no daily quota, so they lead as the reliable backbone.
+NEWS_PROVIDERS = os.getenv("NEWS_PROVIDERS", "googlenews,yahoo,finnhub,marketaux,newsapi,alphavantage")
 # Per-provider request cap (free tiers are small; keep pulls modest).
 NEWS_PER_PROVIDER = int(os.getenv("NEWS_PER_PROVIDER", "10"))
 

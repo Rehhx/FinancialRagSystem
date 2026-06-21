@@ -291,3 +291,15 @@ a pure function (`market._map_fmp`) with unit tests, so it's guarded without
 needing a key or network. This is the budget tier of point-in-time fundamentals;
 true PIT/restatement-aware data (Capital IQ / FactSet) remains the institutional
 upgrade, and full-tape prices (Polygon/Databento) is the matching P1.
+
+**News-cycle ingestion + news-aware RAG (shipped — free).** News now leads with
+**free, no-quota RSS feeds** (Google News search + Yahoo Finance) ahead of the
+keyed APIs, merged by a **priority interleave** (not a global recency sort, which
+let one fresh-but-generic feed crowd out relevant sources). The crucial change:
+each company's recent headlines are now **embedded into the vector store** as a
+per-ticker `News` chunk, so the RAG answers news-cycle questions with real dated
+headlines instead of only the one-line sentiment summary — at ~50 small embeddings
+per refresh (pennies), incremental so it only re-embeds when headlines change. RSS
+parsing, the interleave, and the digest are pure functions with unit tests. Next:
+8-K / material-event ingestion from EDGAR, and a rolling news *archive* (beyond the
+14-day window) to support a true sentiment lead-lag backtest.

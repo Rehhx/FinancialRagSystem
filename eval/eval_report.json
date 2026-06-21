@@ -1,10 +1,10 @@
 {
-  "as_of": "2026-06-20",
+  "as_of": "2026-06-21",
   "aggregate": {
     "k": 8,
     "n": 15,
-    "recall_at_k": 0.839,
-    "mrr": 0.922,
+    "recall_at_k": 0.844,
+    "mrr": 1.0,
     "hit_rate": 1.0
   },
   "questions": [
@@ -15,10 +15,9 @@
         "MU"
       ],
       "retrieved": [
-        "NVDA",
         "MU",
-        "GFS",
-        "AMZN"
+        "WDC",
+        "NVDA"
       ],
       "recall": 1.0,
       "rr": 1.0,
@@ -51,13 +50,15 @@
         "AVGO"
       ],
       "retrieved": [
-        "GFS",
         "INTC",
         "AMD",
+        "QCOM",
+        "ADI",
+        "TXN",
         "AVGO"
       ],
       "recall": 0.75,
-      "rr": 0.5,
+      "rr": 1.0,
       "hit": true
     },
     {
@@ -71,14 +72,12 @@
       "retrieved": [
         "GOOGL",
         "ORCL",
+        "HPE",
         "MSFT",
         "AMZN",
-        "TSLA",
-        "IBM",
-        "NOW",
-        "GFS"
+        "NVDA"
       ],
-      "recall": 0.75,
+      "recall": 1.0,
       "rr": 1.0,
       "hit": true
     },
@@ -90,11 +89,10 @@
         "NXPI"
       ],
       "retrieved": [
-        "TSLA",
         "ON",
-        "F",
-        "BWA",
-        "NVDA"
+        "NXPI",
+        "TXN",
+        "MCHP"
       ],
       "recall": 0.667,
       "rr": 1.0,
@@ -111,11 +109,9 @@
       "retrieved": [
         "DELL",
         "AMD",
-        "INTC",
-        "MU",
-        "NVDA"
+        "INTC"
       ],
-      "recall": 1.0,
+      "recall": 0.75,
       "rr": 1.0,
       "hit": true
     },
@@ -128,15 +124,13 @@
         "AVGO"
       ],
       "retrieved": [
-        "TMUS",
-        "CHTR",
-        "QCOM",
         "CSCO",
-        "QRVO",
-        "AVGO"
+        "QCOM",
+        "ANET",
+        "QRVO"
       ],
-      "recall": 0.75,
-      "rr": 0.333,
+      "recall": 0.5,
+      "rr": 1.0,
       "hit": true
     },
     {
@@ -147,9 +141,9 @@
       ],
       "retrieved": [
         "ANET",
-        "AVGO",
-        "AAPL",
-        "CMCSA"
+        "CSCO",
+        "HPE",
+        "AVGO"
       ],
       "recall": 1.0,
       "rr": 1.0,
@@ -164,14 +158,13 @@
         "APTV"
       ],
       "retrieved": [
-        "F",
-        "TSLA",
         "GM",
+        "TSLA",
         "APTV",
         "BWA",
         "NXPI"
       ],
-      "recall": 1.0,
+      "recall": 0.75,
       "rr": 1.0,
       "hit": true
     },
@@ -186,10 +179,11 @@
       "retrieved": [
         "MSFT",
         "STX",
-        "ORCL",
-        "AMZN"
+        "AMD",
+        "HPE",
+        "DELL"
       ],
-      "recall": 0.25,
+      "recall": 0.5,
       "rr": 1.0,
       "hit": true
     },
@@ -203,10 +197,8 @@
       ],
       "retrieved": [
         "SMCI",
-        "HPE",
-        "HPQ",
-        "AMD",
-        "NVDA"
+        "NVDA",
+        "AMD"
       ],
       "recall": 0.75,
       "rr": 1.0,
@@ -222,8 +214,6 @@
       "retrieved": [
         "CSCO",
         "ANET",
-        "VZ",
-        "GOOGL",
         "AAPL",
         "AVGO"
       ],
@@ -240,13 +230,10 @@
       ],
       "retrieved": [
         "F",
-        "GM",
-        "BWA",
-        "APTV",
-        "TSLA",
+        "ON",
         "QCOM"
       ],
-      "recall": 0.667,
+      "recall": 1.0,
       "rr": 1.0,
       "hit": true
     },
@@ -277,9 +264,9 @@
         "STX"
       ],
       "retrieved": [
+        "STX",
         "MU",
-        "WDC",
-        "STX"
+        "WDC"
       ],
       "recall": 1.0,
       "rr": 1.0,

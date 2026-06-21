@@ -120,6 +120,52 @@ def test_fmp_fundamentals_no_key(monkeypatch):
     assert market._fmp_fundamentals("NVDA") == {}   # no key -> no network -> {}
 
 
+# ── news: RSS parsing, interleave, RAG digest ────────────────────────────────
+
+_RSS = """<?xml version="1.0"?>
+<rss version="2.0"><channel>
+<item><title>NVDA soars on AI demand</title><link>http://x/1</link>
+<pubDate>Fri, 20 Jun 2026 13:00:00 GMT</pubDate>
+<description>&lt;p&gt;Big &lt;b&gt;day&lt;/b&gt;&lt;/p&gt;</description>
+<source url="http://m">Morningstar</source></item>
+<item><title>Chip demand rises</title><link>http://x/2</link>
+<pubDate>Thu, 19 Jun 2026 09:00:00 GMT</pubDate><description>demand up</description></item>
+</channel></rss>"""
+
+
+def test_strip_html():
+    from sp500_vault.data_sources import news
+    assert news._strip_html("<p>hi <b>there</b></p>") == "hi there"
+
+
+def test_parse_rss():
+    from sp500_vault.data_sources import news
+    items = news._parse_rss(_RSS, "googlenews", 10)
+    assert len(items) == 2
+    assert items[0]["headline"] == "NVDA soars on AI demand"
+    assert items[0]["source"] == "Morningstar"
+    assert items[0]["datetime"].startswith("2026-06-20")
+    assert items[0]["summary"] == "Big day"        # HTML entities + tags stripped
+    assert items[0]["provider"] == "googlenews"
+
+
+def test_interleave_round_robin():
+    from sp500_vault.data_sources import news
+    a = [{"headline": "a1"}, {"headline": "a2"}]
+    b = [{"headline": "b1"}]
+    merged = news._interleave([a, b])
+    assert [m["headline"] for m in merged] == ["a1", "b1", "a2"]   # priority-first, then round-robin
+
+
+def test_news_digest():
+    arts = [{"datetime": "2026-06-20T10:00:00", "headline": "NVDA up", "source": "Barrons",
+             "summary": "rally"},
+            {"datetime": "2026-06-19T08:00:00", "headline": "Guidance raised", "provider": "yahoo"}]
+    d = rag._news_digest("NVDA", arts)
+    assert "Recent News" in d and "NVDA up" in d and "2026-06-20" in d
+    assert "(Barrons)" in d and "rally" in d
+
+
 # ── graph math ───────────────────────────────────────────────────────────────
 
 def test_clean_sanitizes_nan():

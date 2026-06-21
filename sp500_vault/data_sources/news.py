@@ -206,14 +206,90 @@ def _parse_av_time(s: str) -> str:
         return ""
 
 
+# ── Free RSS feeds (no key, no quota — the news-cycle backbone) ───────────────
+
+_RSS_HEADERS = {"User-Agent": "Mozilla/5.0 (sp500-rag-vault research-bot)"}
+
+
+def _strip_html(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text or "")).strip()
+
+
+def _rfc822(s: str) -> str:
+    from email.utils import parsedate_to_datetime
+    try:
+        return parsedate_to_datetime(s).isoformat()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _parse_rss(text: str, provider: str, limit: int) -> list[dict]:
+    """Parse an RSS 2.0 feed into normalized articles (stdlib XML, no new dep)."""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return []
+    out: list[dict] = []
+    for item in root.findall(".//item"):
+        title = (item.findtext("title") or "").strip()
+        if not title:
+            continue
+        src_el = item.find("source")
+        source = (src_el.text or "").strip() if src_el is not None and src_el.text else ""
+        out.append(_article(
+            headline=title,
+            summary=_strip_html(item.findtext("description") or ""),
+            source=source,
+            url=(item.findtext("link") or "").strip(),
+            when=_rfc822(item.findtext("pubDate") or ""),
+            provider=provider,
+        ))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _yahoo_rss(ticker: str, limit: int) -> list[dict]:
+    try:
+        r = requests.get(
+            "https://feeds.finance.yahoo.com/rss/2.0/headline",
+            params={"s": ticker, "region": "US", "lang": "en-US"},
+            headers=_RSS_HEADERS, timeout=_TIMEOUT)
+        return _parse_rss(r.text, "yahoo", limit) if r.status_code == 200 else []
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _googlenews_rss(ticker: str, lookback_days: int, limit: int) -> list[dict]:
+    """Google News search RSS, scoped to the company name + recency window."""
+    name = BY_TICKER[ticker].name if ticker in BY_TICKER else ticker
+    query = f"{_clean_name(name)} stock when:{max(1, lookback_days)}d"
+    try:
+        r = requests.get(
+            "https://news.google.com/rss/search",
+            params={"q": query, "hl": "en-US", "gl": "US", "ceid": "US:en"},
+            headers=_RSS_HEADERS, timeout=_TIMEOUT)
+        return _parse_rss(r.text, "googlenews", limit) if r.status_code == 200 else []
+    except Exception:  # noqa: BLE001
+        return []
+
+
 # ── Aggregation ──────────────────────────────────────────────────────────────
 
 _PROVIDERS = {
+    # Free, no key, no daily quota — listed first so they're the reliable backbone.
+    "googlenews": lambda t, s, today, lim: _googlenews_rss(t, (today - s).days, lim),
+    "yahoo": lambda t, s, today, lim: _yahoo_rss(t, lim),
+    # Keyed APIs (free tiers with daily caps).
     "finnhub": lambda t, s, today, lim: _finnhub_news(t, s, today, lim),
     "marketaux": lambda t, s, today, lim: _marketaux_news(t, s, lim),
     "newsapi": lambda t, s, today, lim: _newsapi_news(t, s, today, lim),
     "alphavantage": lambda t, s, today, lim: _alphavantage_news(t, s, lim),
 }
+
+# Providers that need no API key (always available when listed in NEWS_PROVIDERS).
+_KEYLESS = {"googlenews", "yahoo"}
 
 
 def _article(headline, summary, source, url, when, provider, provider_sentiment=None) -> dict:
@@ -247,7 +323,8 @@ def _dedup(articles: list[dict]) -> list[dict]:
 
 
 def active_providers() -> list[str]:
-    """Configured providers (in priority order) that actually have a key."""
+    """Configured providers (in priority order): keyless RSS always on; keyed
+    APIs only when their key is set."""
     keyed = {
         "finnhub": config.FINNHUB_API_KEY,
         "marketaux": config.MARKETAUX_API_KEY,
@@ -256,33 +333,46 @@ def active_providers() -> list[str]:
     }
     out = []
     for name in (p.strip().lower() for p in config.NEWS_PROVIDERS.split(",")):
-        if name in _PROVIDERS and keyed.get(name):
+        if name in _KEYLESS or (name in _PROVIDERS and keyed.get(name)):
             out.append(name)
     return out
+
+
+def _interleave(per_provider: list[list[dict]]) -> list[dict]:
+    """Round-robin merge across providers (each already newest-first) so every
+    source is represented and the priority-ordered ones lead — instead of a
+    global recency sort that lets one fresh-but-generic feed crowd out the rest."""
+    merged: list[dict] = []
+    depth = max((len(a) for a in per_provider), default=0)
+    for i in range(depth):
+        for arts in per_provider:
+            if i < len(arts):
+                merged.append(arts[i])
+    return merged
 
 
 def fetch_news(ticker: str, lookback_days: int | None = None, limit: int | None = None) -> list[dict]:
     """Recent company news merged across all configured providers.
 
     Returns a list of {headline, summary, source, url, datetime, provider,
-    provider_sentiment}, newest-first and de-duplicated. Capped at ``limit``
-    (default ``config.SENTIMENT_MAX_ARTICLES``).
+    provider_sentiment}, de-duplicated and interleaved by provider priority
+    (free RSS leads). Capped at ``limit`` (default ``config.SENTIMENT_MAX_ARTICLES``).
     """
     lookback_days = lookback_days or config.SENTIMENT_LOOKBACK_DAYS
     limit = limit or config.SENTIMENT_MAX_ARTICLES
     today = dt.date.today()
     start = today - dt.timedelta(days=lookback_days)
 
-    collected: list[dict] = []
+    per_provider: list[list[dict]] = []
     for name in active_providers():
         try:
-            collected.extend(_PROVIDERS[name](ticker, start, today, config.NEWS_PER_PROVIDER))
+            arts = _PROVIDERS[name](ticker, start, today, config.NEWS_PER_PROVIDER)
         except Exception:  # noqa: BLE001 - never let one provider sink the pass
-            continue
+            arts = []
+        arts.sort(key=lambda x: x["datetime"], reverse=True)   # newest-first within a provider
+        per_provider.append(arts)
 
-    collected = _dedup(collected)
-    collected.sort(key=lambda x: x["datetime"], reverse=True)
-    return collected[:limit]
+    return _dedup(_interleave(per_provider))[:limit]
 
 
 def fetch_peers(ticker: str) -> list[str]:

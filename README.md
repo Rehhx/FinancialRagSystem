@@ -37,11 +37,11 @@ Ingestion ──► Processing ──► Vault (markdown + [[links]]) ──► 
 |---|---|---|
 | Quant | `quant.py` (`data_sources/market.py` — FMP → yfinance) | `data/quant/<T>.json` |
 | Relationships | `relationships.py` (`data_sources/edgar.py`, `news.py`) | `data/relationships.db` |
-| Sentiment | `sentiment.py` (`data_sources/news.py` — Finnhub + Marketaux + NewsAPI + Alpha Vantage) | `data/sentiment/<T>.json` |
+| Sentiment | `sentiment.py` (`data_sources/news.py` — Google News + Yahoo RSS + Finnhub + Marketaux + NewsAPI + Alpha Vantage) | `data/sentiment/<T>.json` |
 | Signals | `signals.py` (Alpaca IEX → yfinance) | `data/signals/correlations.json`, `vault/_Signals.md` |
 | Backtest | `backtest.py` (lead-lag) | `data/signals/backtest.json`, `vault/_Backtest.md` |
 | Vault render | `vault_render.py` | `vault/<T>.md`, `<T>_news_log.md`, `_Dashboard.md` |
-| RAG index | `rag.py` (LangChain + OpenAI embeddings + Chroma) | `data/chroma/` (incremental) |
+| RAG index | `rag.py` (LangChain + OpenAI embeddings + Chroma; note chunks + per-ticker news) | `data/chroma/` (incremental) |
 | Graph export | `graph_export.py` | `data/graph/graph.json` (for future web viz) |
 | Scheduler | `scheduler.py` | per-layer cadence refresh (Phase 7) |
 | Query API | `api.py` | FastAPI `/query` |
@@ -49,10 +49,14 @@ Ingestion ──► Processing ──► Vault (markdown + [[links]]) ──► 
 ## Setup
 
 Secrets live in `.env` (already present): `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-`FINNHUB_API_KEY`. Optional extra news feeds broaden sentiment coverage —
-`MARKETAUX_API_KEY`, `NEWS_API_KEY` (NewsAPI.org), `ALPHA_API_KEY` (Alpha
-Vantage); each is skipped gracefully if absent, and the set/order is configurable
-via `NEWS_PROVIDERS`. For **cleaner fundamentals**, set `FMP_API_KEY` (Financial
+`FINNHUB_API_KEY`. News comes from **free RSS feeds first** — **Google News** and **Yahoo Finance**,
+which need no key and have no daily quota, so they're the reliable backbone — plus
+optional keyed APIs that broaden coverage: `FINNHUB_API_KEY`, `MARKETAUX_API_KEY`,
+`NEWS_API_KEY` (NewsAPI.org), `ALPHA_API_KEY` (Alpha Vantage). Each keyed provider
+is skipped gracefully if absent; the set/order is configurable via `NEWS_PROVIDERS`.
+Providers are **interleaved by priority** (not globally recency-sorted) so every
+source is represented, and the merged headlines are **indexed into the RAG** so you
+can ask news-cycle questions. For **cleaner fundamentals**, set `FMP_API_KEY` (Financial
 Modeling Prep): with `FUNDAMENTALS_SOURCE=auto` (default) the quant layer uses FMP
 when the key is present and falls back to yfinance otherwise — no other change
 needed. SEC EDGAR wants a contact email — set `SEC_CONTACT_EMAIL` in
@@ -226,6 +230,14 @@ running `scheduler tick` daily keeps the vector store current for near-zero cost
 ticker/company the retriever also pulls that name's supply-chain **neighbors'**
 chunks into context (`rag._graph_expand`), so answers reason over connected
 exposure — not just the named company's own note.
+
+**Retrieval is news-aware:** each company's recent headlines (merged across the
+free RSS + keyed providers, newest-first) are embedded as a per-ticker `News`
+chunk, so questions like *"what's the latest news driving NVIDIA?"* retrieve actual
+dated headlines — not just the one-line sentiment summary. The news chunk re-embeds
+only when the headlines change, so the daily refresh keeps the RAG current for ~50
+small embeddings (fractions of a cent). The raw articles also accumulate sentiment
+history in `data/sentiment/history.csv` for the lead-lag work.
 
 **Ranking & aggregate questions route to the graph, not the vectors.** A question
 like *"which company is the most systemically central?"* or *"which memory makers
