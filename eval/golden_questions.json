@@ -1,0 +1,33 @@
+{
+  "_comment": "Golden evaluation set for the S&P 500 RAG vault. expected_tickers = the tickers whose notes SHOULD be retrieved to answer well (relationship ground truth from filings + manual overrides). Recall@k measures how many of these the retriever surfaces. Curate/expand this as an analyst task.",
+  "questions": [
+    {"question": "Which companies supply memory chips to NVIDIA?", "expected_tickers": ["NVDA", "MU"]},
+    {"question": "What components does Apple buy from Qualcomm, Skyworks, and Qorvo?", "expected_tickers": ["AAPL", "QCOM", "SWKS", "QRVO"]},
+    {"question": "Who are NVIDIA's main competitors?", "expected_tickers": ["NVDA", "AMD", "INTC", "AVGO"]},
+    {"question": "Which cloud and hyperscaler companies buy NVIDIA GPUs?", "expected_tickers": ["NVDA", "MSFT", "AMZN", "GOOGL"]},
+    {"question": "What semiconductors does Tesla use in its vehicles?", "expected_tickers": ["TSLA", "ON", "NXPI"]},
+    {"question": "Which chipmakers supply Dell's servers and PCs?", "expected_tickers": ["DELL", "INTC", "AMD", "NVDA"]},
+    {"question": "Who supplies Verizon's 5G and networking equipment?", "expected_tickers": ["VZ", "QCOM", "CSCO", "AVGO"]},
+    {"question": "What does Arista Networks source from Broadcom?", "expected_tickers": ["ANET", "AVGO"]},
+    {"question": "Which automakers depend on NXP Semiconductors?", "expected_tickers": ["NXPI", "GM", "F", "APTV"]},
+    {"question": "Which companies supply Microsoft's data centers?", "expected_tickers": ["MSFT", "NVDA", "AMD", "INTC"]},
+    {"question": "What chips does Super Micro use to build AI servers?", "expected_tickers": ["SMCI", "NVDA", "AMD", "INTC"]},
+    {"question": "Who buys networking silicon from Broadcom?", "expected_tickers": ["AVGO", "ANET", "CSCO"]},
+    {"question": "What does Ford buy from Qualcomm and ON Semiconductor?", "expected_tickers": ["F", "QCOM", "ON"]},
+    {"question": "Which company is the most systemically central in the chip supply chain?", "expected_tickers": ["NVDA"]},
+    {"question": "Which memory and storage makers have the most bullish sentiment?", "expected_tickers": ["MU", "WDC", "STX"]}
+  ],
+  "_graph_comment": "Deterministic regression guards for the graph-metric router (graph_qa): ranking, aggregate, and multi-hop set algebra. Unlike the recall@k questions above, these assert the EXACT selected member set (relationship/scope derived — stable across data refreshes) and, for aggregates, that the computed value recomputes consistently against an independent reducer (drift-proof vs live P/E / market cap). expected_set = the set graph_qa._select_set must return. Update these when the universe or extracted relationships change.",
+  "graph_queries": [
+    {"question": "What is the average P/E of NVIDIA's competitors?", "type": "aggregate", "expected_set": ["ADI", "AMD", "AMZN", "ANET", "AVGO", "CSCO", "GOOGL", "HPE", "INTC", "MCHP", "MPWR", "MSFT", "MU", "QCOM", "TSLA", "TXN"]},
+    {"question": "What is the average P/E of the competitors of NVIDIA's suppliers?", "type": "aggregate", "expected_set": ["ADI", "AMD", "AVGO", "INTC", "MCHP", "MPWR", "NVDA", "QCOM", "TXN"]},
+    {"question": "What is the total market cap of the hyperscalers?", "type": "aggregate", "expected_set": ["AMZN", "GOOGL", "META", "MSFT", "ORCL"]},
+    {"question": "What is the median sentiment of semiconductor companies?", "type": "aggregate", "expected_set": ["ADI", "AMAT", "AMD", "AVGO", "GFS", "INTC", "KLAC", "LRCX", "MCHP", "MPWR", "MU", "NVDA", "NXPI", "ON", "QCOM", "QRVO", "SWKS", "TER", "TXN"]},
+    {"question": "How many competitors does Apple have?", "type": "aggregate", "expected_set": ["DELL", "HPE", "HPQ", "QCOM", "SMCI", "WDC"]},
+    {"question": "Which memory and storage makers have the most bullish sentiment?", "type": "ranking", "expected_set": ["MU", "STX", "WDC"]},
+    {"question": "Which of NVIDIA's suppliers has the lowest P/E?", "type": "ranking", "expected_set": ["MU"]},
+    {"question": "Which of NVIDIA's competitors have a P/E under 30?", "type": "filter", "predicate": {"field": "metrics.pe_ttm", "op": "lt", "value": 30}},
+    {"question": "Which semiconductor companies have a market cap over $200B?", "type": "filter", "predicate": {"field": "market_cap", "op": "gt", "value": 200000000000}},
+    {"question": "Which of Apple's competitors have sentiment above 0.5?", "type": "filter", "predicate": {"field": "sentiment_score", "op": "gt", "value": 0.5}}
+  ]
+}

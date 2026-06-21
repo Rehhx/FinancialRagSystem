@@ -1,0 +1,355 @@
+{
+  "as_of": "2026-06-20",
+  "aggregate": {
+    "k": 8,
+    "n": 15,
+    "recall_at_k": 0.839,
+    "mrr": 0.922,
+    "hit_rate": 1.0
+  },
+  "questions": [
+    {
+      "question": "Which companies supply memory chips to NVIDIA?",
+      "expected": [
+        "NVDA",
+        "MU"
+      ],
+      "retrieved": [
+        "NVDA",
+        "MU",
+        "GFS",
+        "AMZN"
+      ],
+      "recall": 1.0,
+      "rr": 1.0,
+      "hit": true
+    },
+    {
+      "question": "What components does Apple buy from Qualcomm, Skyworks, and Qorvo?",
+      "expected": [
+        "AAPL",
+        "QCOM",
+        "SWKS",
+        "QRVO"
+      ],
+      "retrieved": [
+        "AAPL",
+        "QRVO",
+        "QCOM",
+        "SWKS"
+      ],
+      "recall": 1.0,
+      "rr": 1.0,
+      "hit": true
+    },
+    {
+      "question": "Who are NVIDIA's main competitors?",
+      "expected": [
+        "NVDA",
+        "AMD",
+        "INTC",
+        "AVGO"
+      ],
+      "retrieved": [
+        "GFS",
+        "INTC",
+        "AMD",
+        "AVGO"
+      ],
+      "recall": 0.75,
+      "rr": 0.5,
+      "hit": true
+    },
+    {
+      "question": "Which cloud and hyperscaler companies buy NVIDIA GPUs?",
+      "expected": [
+        "NVDA",
+        "MSFT",
+        "AMZN",
+        "GOOGL"
+      ],
+      "retrieved": [
+        "GOOGL",
+        "ORCL",
+        "MSFT",
+        "AMZN",
+        "TSLA",
+        "IBM",
+        "NOW",
+        "GFS"
+      ],
+      "recall": 0.75,
+      "rr": 1.0,
+      "hit": true
+    },
+    {
+      "question": "What semiconductors does Tesla use in its vehicles?",
+      "expected": [
+        "TSLA",
+        "ON",
+        "NXPI"
+      ],
+      "retrieved": [
+        "TSLA",
+        "ON",
+        "F",
+        "BWA",
+        "NVDA"
+      ],
+      "recall": 0.667,
+      "rr": 1.0,
+      "hit": true
+    },
+    {
+      "question": "Which chipmakers supply Dell's servers and PCs?",
+      "expected": [
+        "DELL",
+        "INTC",
+        "AMD",
+        "NVDA"
+      ],
+      "retrieved": [
+        "DELL",
+        "AMD",
+        "INTC",
+        "MU",
+        "NVDA"
+      ],
+      "recall": 1.0,
+      "rr": 1.0,
+      "hit": true
+    },
+    {
+      "question": "Who supplies Verizon's 5G and networking equipment?",
+      "expected": [
+        "VZ",
+        "QCOM",
+        "CSCO",
+        "AVGO"
+      ],
+      "retrieved": [
+        "TMUS",
+        "CHTR",
+        "QCOM",
+        "CSCO",
+        "QRVO",
+        "AVGO"
+      ],
+      "recall": 0.75,
+      "rr": 0.333,
+      "hit": true
+    },
+    {
+      "question": "What does Arista Networks source from Broadcom?",
+      "expected": [
+        "ANET",
+        "AVGO"
+      ],
+      "retrieved": [
+        "ANET",
+        "AVGO",
+        "AAPL",
+        "CMCSA"
+      ],
+      "recall": 1.0,
+      "rr": 1.0,
+      "hit": true
+    },
+    {
+      "question": "Which automakers depend on NXP Semiconductors?",
+      "expected": [
+        "NXPI",
+        "GM",
+        "F",
+        "APTV"
+      ],
+      "retrieved": [
+        "F",
+        "TSLA",
+        "GM",
+        "APTV",
+        "BWA",
+        "NXPI"
+      ],
+      "recall": 1.0,
+      "rr": 1.0,
+      "hit": true
+    },
+    {
+      "question": "Which companies supply Microsoft's data centers?",
+      "expected": [
+        "MSFT",
+        "NVDA",
+        "AMD",
+        "INTC"
+      ],
+      "retrieved": [
+        "MSFT",
+        "STX",
+        "ORCL",
+        "AMZN"
+      ],
+      "recall": 0.25,
+      "rr": 1.0,
+      "hit": true
+    },
+    {
+      "question": "What chips does Super Micro use to build AI servers?",
+      "expected": [
+        "SMCI",
+        "NVDA",
+        "AMD",
+        "INTC"
+      ],
+      "retrieved": [
+        "SMCI",
+        "HPE",
+        "HPQ",
+        "AMD",
+        "NVDA"
+      ],
+      "recall": 0.75,
+      "rr": 1.0,
+      "hit": true
+    },
+    {
+      "question": "Who buys networking silicon from Broadcom?",
+      "expected": [
+        "AVGO",
+        "ANET",
+        "CSCO"
+      ],
+      "retrieved": [
+        "CSCO",
+        "ANET",
+        "VZ",
+        "GOOGL",
+        "AAPL",
+        "AVGO"
+      ],
+      "recall": 1.0,
+      "rr": 1.0,
+      "hit": true
+    },
+    {
+      "question": "What does Ford buy from Qualcomm and ON Semiconductor?",
+      "expected": [
+        "F",
+        "QCOM",
+        "ON"
+      ],
+      "retrieved": [
+        "F",
+        "GM",
+        "BWA",
+        "APTV",
+        "TSLA",
+        "QCOM"
+      ],
+      "recall": 0.667,
+      "rr": 1.0,
+      "hit": true
+    },
+    {
+      "question": "Which company is the most systemically central in the chip supply chain?",
+      "expected": [
+        "NVDA"
+      ],
+      "retrieved": [
+        "NVDA",
+        "QCOM",
+        "AMD",
+        "ADI",
+        "MPWR",
+        "HPE",
+        "AVGO",
+        "MCHP"
+      ],
+      "recall": 1.0,
+      "rr": 1.0,
+      "hit": true
+    },
+    {
+      "question": "Which memory and storage makers have the most bullish sentiment?",
+      "expected": [
+        "MU",
+        "WDC",
+        "STX"
+      ],
+      "retrieved": [
+        "MU",
+        "WDC",
+        "STX"
+      ],
+      "recall": 1.0,
+      "rr": 1.0,
+      "hit": true
+    }
+  ],
+  "graph_queries": {
+    "n": 10,
+    "passed": 10,
+    "checks": [
+      {
+        "question": "What is the average P/E of NVIDIA's competitors?",
+        "type": "aggregate",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "question": "What is the average P/E of the competitors of NVIDIA's suppliers?",
+        "type": "aggregate",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "question": "What is the total market cap of the hyperscalers?",
+        "type": "aggregate",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "question": "What is the median sentiment of semiconductor companies?",
+        "type": "aggregate",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "question": "How many competitors does Apple have?",
+        "type": "aggregate",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "question": "Which memory and storage makers have the most bullish sentiment?",
+        "type": "ranking",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "question": "Which of NVIDIA's suppliers has the lowest P/E?",
+        "type": "ranking",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "question": "Which of NVIDIA's competitors have a P/E under 30?",
+        "type": "filter",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "question": "Which semiconductor companies have a market cap over $200B?",
+        "type": "filter",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "question": "Which of Apple's competitors have sentiment above 0.5?",
+        "type": "filter",
+        "ok": true,
+        "detail": ""
+      }
+    ]
+  }
+}

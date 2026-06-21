@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S&P 500 RAG Vault — Graph Explorer</title>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0d12; --bg2: #0e1218; --panel: #11161f; --panel2: #171d28;
+    --line: #232b38; --line2: #2c3645;
+    --text: #e8eef6; --muted: #8a97a9; --faint: #5b6675;
+    --accent: #5aa2ff; --accent-dim: #2b3c5a;
+    --supplier: #41d178; --customer: #5aa2ff; --competitor: #e3a838;
+    --semi: #f778ba; --hw: #a371f7; --cloud: #38c7d4;
+    --shadow: 0 8px 30px rgba(0,0,0,.45);
+    --radius: 9px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased; overflow: hidden; }
+  #app { display: grid; grid-template-rows: 50px 1fr; grid-template-columns: 344px 1fr;
+    grid-template-areas: "top top" "side main"; height: 100vh; }
+
+  /* Top bar */
+  header { grid-area: top; display: flex; align-items: center; gap: 18px;
+    padding: 0 18px; background: linear-gradient(180deg,#11161f,#0d1118);
+    border-bottom: 1px solid var(--line); }
+  header .brand { font-weight: 700; font-size: 14px; letter-spacing: .2px; }
+  header .brand .mk { color: var(--accent); }
+  header .stat { color: var(--muted); font-size: 12px; }
+  header .stat b { color: var(--text); font-variant-numeric: tabular-nums; }
+  header .spacer { flex: 1; }
+  header .pill { font-size: 11px; color: var(--muted); border: 1px solid var(--line2);
+    border-radius: 20px; padding: 3px 10px; }
+  header button.ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--line2);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer; font: inherit; font-size: 12px;
+    transition: .15s; white-space: nowrap; }
+  header button.ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  header button.ghost:disabled { opacity: .6; cursor: default; }
+
+  #toast { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(8px);
+    background: #11161fef; border: 1px solid var(--line2); color: var(--text); padding: 9px 14px;
+    border-radius: 9px; font-size: 12.5px; box-shadow: var(--shadow); opacity: 0; pointer-events: none;
+    transition: .25s; z-index: 50; }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  aside { grid-area: side; background: var(--panel); border-right: 1px solid var(--line);
+    overflow-y: auto; padding: 14px 14px 40px; scrollbar-width: thin; }
+  aside::-webkit-scrollbar { width: 8px; } aside::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 8px; }
+  main { grid-area: main; position: relative; background:
+    radial-gradient(1200px 800px at 60% 35%, #11161f 0%, var(--bg2) 55%, var(--bg) 100%); }
+
+  h2 { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--faint); margin: 20px 0 9px; font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 8px; }
+
+  /* Segmented control */
+  .seg { display: flex; background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 3px; gap: 3px; }
+  .seg button { flex: 1; background: transparent; border: 0; color: var(--muted);
+    padding: 6px 8px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 12px;
+    transition: .15s; }
+  .seg button.on { background: var(--accent-dim); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
+  .seg button:hover:not(.on) { color: var(--text); }
+
+  .chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px;
+    border: 1px solid var(--line2); border-radius: 16px; cursor: pointer;
+    background: var(--panel2); margin: 0 6px 6px 0; user-select: none; font-size: 12px;
+    transition: .15s; }
+  .chip:hover { border-color: var(--faint); }
+  .chip.off { opacity: .38; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+  input[type=text], textarea { width: 100%; background: var(--panel2);
+    border: 1px solid var(--line); color: var(--text); border-radius: 8px;
+    padding: 8px 10px; font: inherit; outline: none; transition: .15s; }
+  input[type=text]:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(90,162,255,.12); }
+  textarea { resize: vertical; min-height: 60px; }
+  button.primary { width: 100%; background: var(--accent); color: #06101f; border: 0;
+    border-radius: 8px; padding: 9px 12px; font-weight: 600; cursor: pointer; margin-top: 8px;
+    transition: .15s; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.primary:disabled { opacity: .5; cursor: default; }
+
+  .legend-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; color: var(--muted); font-size: 12px; }
+  .grad { height: 9px; border-radius: 6px; flex: 1;
+    background: linear-gradient(90deg, var(--competitor) 0%, #e5534b 6%, #8a97a9 50%, var(--supplier) 100%); }
+  .grad.sent { background: linear-gradient(90deg, #e5534b, #8a97a9, var(--supplier)); }
+  .ticks { display: flex; justify-content: space-between; color: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+  .sizeref { display: flex; align-items: flex-end; gap: 14px; color: var(--muted); margin-top: 4px; }
+  .sizeref .s { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10px; }
+  .sizeref .o { border-radius: 50%; background: #2c3645; border: 1px solid var(--line2); }
+  #clusterKey { display: none; flex-wrap: wrap; margin: 6px 0 2px; }
+  #clusterKey .ck { display: inline-flex; align-items: center; gap: 5px; margin: 2px 9px 2px 0;
+    color: var(--muted); font-size: 11px; }
+
+  /* Detail panel */
+  #detail .empty { color: var(--faint); }
+  #detail .name { font-size: 15px; font-weight: 650; }
+  #detail .tk { color: var(--muted); font-weight: 500; }
+  #detail .meta { color: var(--muted); font-size: 12px; margin: 2px 0 10px; }
+  .metricgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin: 8px 0 4px; }
+  .metricgrid .m { background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; }
+  .metricgrid .m .l { color: var(--faint); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+  .metricgrid .m .v { font-size: 14px; font-variant-numeric: tabular-nums; }
+  .sentbar { height: 6px; border-radius: 4px; background: var(--panel2); overflow: hidden; margin: 6px 0; position: relative; }
+  .sentbar .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line2); }
+  .sentbar .fill { position: absolute; top: 0; bottom: 0; }
+  .edgelist { margin-top: 6px; }
+  .edgehdr { display: flex; align-items: center; gap: 7px; margin: 10px 0 4px; font-weight: 600; font-size: 12px; }
+  .edge { cursor: pointer; padding: 3px 6px; border-radius: 6px; color: var(--muted);
+    display: flex; gap: 6px; align-items: baseline; }
+  .edge:hover { background: var(--panel2); color: var(--text); }
+  .edge .ar { color: var(--faint); font-variant-numeric: tabular-nums; }
+  .edge .ev { color: var(--faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Graph chrome */
+  svg { width: 100%; height: 100%; display: block; cursor: grab; }
+  svg:active { cursor: grabbing; }
+  text.label { fill: var(--text); font-size: 9.5px; pointer-events: none;
+    paint-order: stroke; stroke: #06090e; stroke-width: 3px; stroke-linejoin: round; }
+  .hulls { pointer-events: none; }
+  .hull-label { font-size: 11px; font-weight: 600; opacity: .6; text-transform: uppercase;
+    letter-spacing: .1em; paint-order: stroke; stroke: #06090e; stroke-width: 3.5px; stroke-linejoin: round; }
+  #tooltip { position: absolute; pointer-events: none; background: #0a0d12f2;
+    border: 1px solid var(--line2); border-radius: 8px; padding: 8px 11px; font-size: 12px;
+    max-width: 250px; opacity: 0; transition: opacity .12s; z-index: 30; box-shadow: var(--shadow); }
+  #tooltip b { font-size: 13px; }
+  #tooltip .t-meta { color: var(--muted); }
+
+  .zoomctl { position: absolute; right: 16px; bottom: 16px; display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; overflow: hidden;
+    box-shadow: var(--shadow); }
+  .zoomctl button { width: 36px; height: 34px; background: transparent; border: 0; color: var(--text);
+    cursor: pointer; font-size: 16px; border-bottom: 1px solid var(--line); }
+  .zoomctl button:last-child { border-bottom: 0; font-size: 11px; }
+  .zoomctl button:hover { background: var(--panel2); }
+
+  /* Floating answer card */
+  #answerCard { position: absolute; left: 16px; bottom: 16px; width: 470px; max-width: calc(100% - 32px);
+    max-height: 64%; background: var(--panel); border: 1px solid var(--line2); border-radius: 12px;
+    box-shadow: var(--shadow); display: none; flex-direction: column; z-index: 25; }
+  #answerCard.show { display: flex; }
+  #answerCard .hd { display: flex; align-items: center; gap: 8px; padding: 11px 14px;
+    border-bottom: 1px solid var(--line); font-weight: 650; }
+  #answerCard .hd .x { margin-left: auto; cursor: pointer; color: var(--muted); border: 0; background: 0; font-size: 16px; }
+  #answerCard .bd { padding: 12px 14px; overflow-y: auto; font-size: 13px; }
+  #answerCard .src { padding: 8px 14px 12px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; }
+  .md h4 { font-size: 14px; margin: 12px 0 4px; } .md h5 { font-size: 12.5px; color: var(--muted); margin: 10px 0 3px; text-transform: uppercase; letter-spacing: .05em; }
+  .md p { margin: 7px 0; } .md ul { margin: 6px 0; padding-left: 20px; } .md li { margin: 3px 0; }
+  .md strong { color: #fff; } .md blockquote { border-left: 2px solid var(--accent-dim); margin: 7px 0; padding: 2px 0 2px 10px; color: var(--muted); }
+  .md a.tick, .src .chip { color: var(--accent); }
+  .md a.tick { background: var(--accent-dim); padding: 0 5px; border-radius: 4px; text-decoration: none; cursor: pointer; font-weight: 600; }
+
+  /* Backtest card */
+  #backtestCard { position: absolute; top: 64px; right: 16px; width: 472px; max-width: calc(100% - 32px);
+    background: var(--panel); border: 1px solid var(--line2); border-radius: 12px;
+    box-shadow: var(--shadow); display: none; flex-direction: column; z-index: 26; }
+  #backtestCard.show { display: flex; }
+  #backtestCard .hd { display: flex; align-items: center; gap: 8px; padding: 11px 14px;
+    border-bottom: 1px solid var(--line); font-weight: 650; }
+  #backtestCard .hd .bt-meta { color: var(--faint); font-size: 11px; font-weight: 400; }
+  #backtestCard .hd .x { margin-left: auto; cursor: pointer; color: var(--muted); border: 0; background: 0; font-size: 16px; }
+  .bt-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 12px 14px 4px; }
+  .bt-stats .s { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+  .bt-stats .s .l { color: var(--faint); font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; }
+  .bt-stats .s .v { font-size: 16px; font-variant-numeric: tabular-nums; }
+  #btChart { width: 100%; height: 184px; display: block; }
+  #btChart text { fill: var(--faint); font-size: 10px; }
+  #btChart .tick line { stroke: var(--line); }
+  .bt-sub { padding: 2px 14px 0; color: var(--muted); font-size: 11px; }
+  #btCustomers { padding: 6px 14px 12px; display: flex; flex-wrap: wrap; }
+  #btCustomers .chip { color: var(--accent); }
+  .heat { display: grid; gap: 3px; padding: 2px 14px 6px; }
+  .heat .hd { color: var(--faint); font-size: 9.5px; text-align: center; align-self: end; }
+  .heat .rl { color: var(--faint); font-size: 9.5px; align-self: center; }
+  .heat .cell { border-radius: 5px; padding: 6px 0; text-align: center; font-size: 11px;
+    font-variant-numeric: tabular-nums; color: #e8eef6; cursor: default; }
+  .heat .cell.best { box-shadow: inset 0 0 0 1.5px var(--accent); font-weight: 700; }
+
+  /* Portfolio card */
+  #portfolioCard { position: absolute; top: 64px; left: 16px; width: 412px; max-width: calc(100% - 32px);
+    background: var(--panel); border: 1px solid var(--line2); border-radius: 12px;
+    box-shadow: var(--shadow); display: none; flex-direction: column; z-index: 26; }
+  #portfolioCard.show { display: flex; }
+  #portfolioCard .hd { display: flex; align-items: center; gap: 8px; padding: 11px 14px;
+    border-bottom: 1px solid var(--line); font-weight: 650; }
+  #portfolioCard .hd .x { margin-left: auto; cursor: pointer; color: var(--muted); border: 0; background: 0; font-size: 16px; }
+  .pf-body { padding: 12px 14px; }
+  .pf-body textarea { min-height: 50px; margin-bottom: 8px; }
+  #pfClear { background: var(--panel2); color: var(--text); border: 1px solid var(--line2);
+    border-radius: 8px; padding: 9px 12px; cursor: pointer; font: inherit; }
+  #pfClear:hover { border-color: var(--faint); }
+  .pf-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 6px; }
+  .pf-stats .s { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+  .pf-stats .s .l { color: var(--faint); font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; }
+  .pf-stats .s .v { font-size: 15px; font-variant-numeric: tabular-nums; }
+  #pfExposure { max-height: 220px; overflow-y: auto; }
+  .pf-exp { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .pf-exp:hover { background: var(--panel2); }
+  .pf-exp .t { font-weight: 600; min-width: 46px; }
+  .pf-exp .r { font-size: 10px; padding: 1px 6px; border-radius: 10px; }
+  .pf-exp .meta { margin-left: auto; color: var(--faint); font-size: 11px; }
+  .pf-warn { color: var(--competitor); font-size: 11px; margin: 4px 0 8px; }
+  .pf-ignored { color: var(--faint); font-size: 11px; margin-top: 8px; }
+
+  /* Loading */
+  #loader { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px; color: var(--muted); z-index: 40; background: var(--bg2); }
+  .spin { width: 34px; height: 34px; border: 3px solid var(--line2); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .muted { color: var(--muted); } .kbd { font: 11px ui-monospace, monospace; background: var(--panel2);
+    border: 1px solid var(--line2); border-radius: 4px; padding: 0 5px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">📈 RAG Vault <span class="mk">Graph Explorer</span></div>
+    <div class="stat">Companies <b id="s-nodes">—</b></div>
+    <div class="stat">Edges <b id="s-edges">—</b></div>
+    <div class="stat" id="s-rel"></div>
+    <div class="spacer"></div>
+    <div class="pill">drag to pan · scroll to zoom · <span class="kbd">Esc</span> clears</div>
+    <button class="ghost" id="openPf" title="Portfolio exposure overlay — paste holdings to see your connected supply-chain exposure">💼 Portfolio</button>
+    <button class="ghost" id="openBt" title="Lead-lag backtest: supplier momentum → customer returns">📈 Backtest</button>
+    <button class="ghost" id="regen" title="Re-export graph.json from the current vault data (no LLM calls)">↻ Regenerate</button>
+  </header>
+
+  <aside>
+    <h2>Search</h2>
+    <input type="text" id="search" placeholder="Ticker or company…" list="tickers" autocomplete="off" aria-label="Search ticker or company" />
+    <datalist id="tickers"></datalist>
+
+    <h2>Color nodes by</h2>
+    <div class="seg" id="colorBy">
+      <button data-v="sentiment" class="on">Sentiment</button>
+      <button data-v="cluster">Cluster</button>
+    </div>
+
+    <h2>Size nodes by</h2>
+    <div class="seg" id="sizeBy">
+      <button data-v="centrality" class="on">Centrality</button>
+      <button data-v="market_cap">Market cap</button>
+      <button data-v="degree">Connections</button>
+    </div>
+
+    <h2>Relationship edges</h2>
+    <div id="relFilters"></div>
+    <div class="muted" style="font-size:11px; margin-top:2px">Line thickness = return correlation (ρ).</div>
+
+    <h2>Clusters</h2>
+    <div id="sectorFilters"></div>
+    <div class="chip" id="hullToggle" style="margin-top:2px"><span class="dot" style="background:var(--faint)"></span>Cluster hulls</div>
+    <div class="muted" style="font-size:11px; margin-top:4px">Swatch = sector hull color · click to filter</div>
+
+    <h2 id="legendTitle">Sentiment scale</h2>
+    <div class="legend-row"><span class="grad sent"></span></div>
+    <div class="ticks"><span>−1 bear</span><span>0</span><span>+1 bull</span></div>
+    <div id="clusterKey"></div>
+    <div class="sizeref" id="sizeref"></div>
+
+    <h2>Ask the vault</h2>
+    <textarea id="q" placeholder="Which companies are most exposed to NVIDIA guidance cuts?" aria-label="Ask the vault a question"></textarea>
+    <button class="primary" id="ask">Ask the vault</button>
+
+    <h2>Details</h2>
+    <div id="detail"><div class="empty">Click a node to inspect its metrics and relationships.</div></div>
+  </aside>
+
+  <main>
+    <svg id="graph"></svg>
+    <div class="zoomctl">
+      <button id="zin" title="Zoom in">+</button>
+      <button id="zout" title="Zoom out">−</button>
+      <button id="zfit" title="Fit to view">fit</button>
+    </div>
+    <div id="tooltip"></div>
+    <div id="answerCard">
+      <div class="hd">💬 Vault answer <button class="x" id="closeAns">✕</button></div>
+      <div class="bd md" id="answerBody"></div>
+      <div class="src" id="answerSrc"></div>
+    </div>
+    <div id="backtestCard">
+      <div class="hd">📈 Lead-lag backtest <span class="bt-meta"></span><button class="x" id="closeBt">✕</button></div>
+      <div class="bt-stats" id="btStats"></div>
+      <svg id="btChart"></svg>
+      <div class="bt-sub">Information Coefficient by lookback → horizon (green = supplier signal leads):</div>
+      <div id="btHeatmap"></div>
+      <div class="bt-sub">Most-predicted customers (IC) — click to focus:</div>
+      <div id="btCustomers"></div>
+    </div>
+    <div id="portfolioCard">
+      <div class="hd">💼 Portfolio exposure<button class="x" id="closePf">✕</button></div>
+      <div class="pf-body">
+        <textarea id="pfInput" placeholder="AAPL 30, NVDA 25, MSFT 25, DELL 20" aria-label="Portfolio holdings"></textarea>
+        <div class="row" style="gap:6px">
+          <button class="primary" id="pfRun" style="flex:1; margin-top:0">Analyze exposure</button>
+          <button id="pfClear">Clear</button>
+        </div>
+        <div id="pfResults"></div>
+      </div>
+    </div>
+    <div id="toast"></div>
+    <div id="loader"><div class="spin"></div><div>Loading the relationship graph…</div></div>
+  </main>
+</div>
+
+<script>
+"use strict";
+const REL_COLOR = { supplier: "#41d178", customer: "#5aa2ff", competitor: "#e3a838" };
+const REL_OPACITY = { supplier: 0.55, customer: 0.6, competitor: 0.14 };  // competitor faint (it's the bulk)
+const linkWidth = l => l.corr != null ? 0.6 + Math.abs(l.corr) * 3.4 : (l.relation === "competitor" ? 0.8 : 1.4);
+const CLUSTER_COLOR = {
+  semiconductor: "#f778ba", hardware: "#a371f7", cloud_software: "#38c7d4",
+  automotive: "#f0883e", communications: "#bdca3f",
+};
+const sentColor = d3.scaleLinear().domain([-0.6, 0, 0.6]).range(["#e5534b", "#8a97a9", "#41d178"]).clamp(true);
+const hullLine = d3.line().curve(d3.curveCatmullRomClosed.alpha(0.7));
+
+const svg = d3.select("#graph");
+const tooltip = d3.select("#tooltip");
+const gZoom = svg.append("g");
+const gHull = gZoom.append("g").attr("class", "hulls");   // behind everything
+const gLink = gZoom.append("g").attr("fill", "none");
+const gNode = gZoom.append("g");
+const gLabel = gZoom.append("g");
+
+// arrowhead markers, one per relation color
+const defs = svg.append("defs");
+for (const [rel, col] of Object.entries(REL_COLOR)) {
+  defs.append("marker").attr("id", "arr-" + rel).attr("viewBox", "0 -5 10 10")
+    .attr("refX", 9).attr("refY", 0).attr("markerWidth", 6).attr("markerHeight", 6).attr("orient", "auto")
+    .append("path").attr("d", "M0,-4L9,0L0,4").attr("fill", col).attr("opacity", 0.8);
+}
+
+let nodes = [], links = [], byId = {}, adj = {};
+let rCap, rDeg, rCent, sim, zoom, currentK = 1, selected = null;
+let colorBy = "sentiment", sizeBy = "centrality";
+const activeRel = new Set(["supplier", "customer", "competitor"]);
+let activeSectors = new Set();
+let firstLoad = true;
+let portfolio = null;
+let hullsOn = true;
+
+const money = v => !v ? "N/A" :
+  v >= 1e12 ? "$" + (v/1e12).toFixed(2) + "T" :
+  v >= 1e9 ? "$" + (v/1e9).toFixed(1) + "B" : "$" + (v/1e6).toFixed(0) + "M";
+const pct = v => v == null ? "—" : (v * 100).toFixed(1) + "%";
+const ratio = v => v == null ? "—" : v.toFixed(1);
+const size = () => [svg.node().clientWidth, svg.node().clientHeight];
+const sizeFn = n => sizeBy === "degree" ? rDeg(n.degree)
+  : sizeBy === "centrality" ? rCent(n.centrality || 0) : rCap(n.market_cap || 0);
+const nodeFill = n => colorBy === "cluster" ? (CLUSTER_COLOR[n.group] || "#888")
+  : (n.sentiment_score == null ? "#8a97a9" : sentColor(n.sentiment_score));
+const nodeStroke = n => colorBy === "cluster" ? "#0a0d12" : (CLUSTER_COLOR[n.group] || "#888");
+
+zoom = d3.zoom().scaleExtent([0.15, 5]).on("zoom", e => {
+  gZoom.attr("transform", e.transform); currentK = e.transform.k; updateLabels();
+});
+svg.call(zoom).on("dblclick.zoom", null);
+svg.on("click", () => { if (selected) { selected = null; clearHighlight(); renderDetail(null); } });
+
+function applyData(data) {
+  if (sim) sim.stop();
+  nodes = data.nodes;
+  links = data.edges.map(e => ({ ...e }));
+  byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+  adj = {};
+  nodes.forEach(n => adj[n.id] = []);
+  links.forEach(l => { (adj[l.source] || []).push(l); (adj[l.target] || []).push(l); });
+  if (firstLoad) activeSectors = new Set(nodes.map(n => n.group));
+
+  const caps = nodes.map(n => n.market_cap || 0), degs = nodes.map(n => n.degree || 0);
+  const cents = nodes.map(n => n.centrality || 0);
+  rCap = d3.scaleSqrt().domain([d3.min(caps) || 1, d3.max(caps) || 1]).range([5, 30]);
+  rDeg = d3.scaleSqrt().domain([d3.min(degs) || 0, d3.max(degs) || 1]).range([5, 30]);
+  rCent = d3.scaleSqrt().domain([d3.min(cents) || 0, d3.max(cents) || 1]).range([5, 30]);
+  [...nodes].sort((a, b) => (b.centrality || 0) - (a.centrality || 0)).forEach((n, i) => n._crank = i + 1);
+
+  d3.select("#s-nodes").text(nodes.length);
+  d3.select("#s-edges").text(links.length);
+  const relCount = links.reduce((a, l) => (a[l.relation] = (a[l.relation] || 0) + 1, a), {});
+  d3.select("#s-rel").html(Object.entries(relCount)
+    .map(([r, c]) => `<span style="color:${REL_COLOR[r]}">●</span> ${r} <b>${c}</b>`).join(" &nbsp; "));
+
+  d3.select("#tickers").selectAll("option").data(nodes).join("option")
+    .attr("value", d => d.id).text(d => d.label);
+
+  buildGraph();
+}
+
+d3.json("/graph.json").then(data => {
+  applyData(data);
+  buildControls();
+  firstLoad = false;
+  d3.select("#loader").transition().duration(400).style("opacity", 0).remove();
+});
+
+// Regenerate graph.json server-side, then swap the data in live
+const regenBtn = document.getElementById("regen");
+async function regenerate() {
+  regenBtn.disabled = true; const orig = regenBtn.textContent; regenBtn.textContent = "↻ Regenerating…";
+  try {
+    const r = await fetch("/regenerate", { method: "POST" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const data = await r.json();
+    selected = null; renderDetail(null);
+    applyData(data);
+    updateLegend();
+    toast(`Graph regenerated · ${data.nodes.length} nodes, ${data.edges.length} edges`);
+  } catch (e) { toast("Regenerate failed: " + e.message); }
+  regenBtn.textContent = orig; regenBtn.disabled = false;
+}
+regenBtn.addEventListener("click", regenerate);
+
+function toast(msg) {
+  const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2800);
+}
+
+function buildControls() {
+  const seg = (id, set) => d3.select(id).selectAll("button").on("click", function () {
+    d3.select(id).selectAll("button").classed("on", false);
+    d3.select(this).classed("on", true); set(this.dataset.v);
+  });
+  seg("#colorBy", v => { colorBy = v; recolor(); updateLegend(); });
+  seg("#sizeBy", v => { sizeBy = v; resize(); updateLegend(); });
+
+  const rel = d3.select("#relFilters");
+  ["supplier", "customer", "competitor"].forEach(r => {
+    rel.append("div").attr("class", "chip" + (activeRel.has(r) ? "" : " off"))
+      .html(`<span class="dot" style="background:${REL_COLOR[r]}"></span>${r}`)
+      .on("click", function () {
+        activeRel.has(r) ? activeRel.delete(r) : activeRel.add(r);
+        d3.select(this).classed("off", !activeRel.has(r)); update();
+      });
+  });
+  const sec = d3.select("#sectorFilters");
+  [...new Set(nodes.map(n => n.group))].forEach(g => {
+    sec.append("div").attr("class", "chip")
+      .html(`<span class="dot" style="background:${CLUSTER_COLOR[g] || '#888'}"></span>${g.replace('_', '/')}`)
+      .on("click", function () {
+        activeSectors.has(g) ? activeSectors.delete(g) : activeSectors.add(g);
+        d3.select(this).classed("off", !activeSectors.has(g)); update();
+      });
+  });
+  updateLegend();
+}
+
+function updateLegend() {
+  d3.select("#legendTitle").text(colorBy === "cluster" ? "Cluster colors (= hulls)" : "Sentiment scale");
+  d3.select(".grad.sent").style("display", colorBy === "cluster" ? "none" : "block");
+  d3.select(".grad.sent").node().parentNode.nextElementSibling.style.display = colorBy === "cluster" ? "none" : "flex";
+
+  const ck = d3.select("#clusterKey");
+  if (colorBy === "cluster") {
+    const present = [...new Set(nodes.map(n => n.group))];
+    ck.style("display", "flex").html(present.map(g =>
+      `<span class="ck"><span class="dot" style="background:${CLUSTER_COLOR[g]}"></span>${g.replace("_", " / ")}</span>`).join(""));
+  } else {
+    ck.style("display", "none").html("");
+  }
+  const sizes = sizeBy === "degree"
+    ? [{ l: "few", r: rDeg(d3.min(nodes, n => n.degree)) }, { l: "many", r: rDeg(d3.max(nodes, n => n.degree)) }]
+    : sizeBy === "centrality"
+    ? [{ l: "low", r: rCent(d3.min(nodes, n => n.centrality || 0)) }, { l: "high", r: rCent(d3.max(nodes, n => n.centrality || 0)) }]
+    : [{ l: "small", r: rCap(d3.min(nodes, n => n.market_cap || 0)) }, { l: "$1T", r: rCap(1e12) }, { l: "mega", r: rCap(d3.max(nodes, n => n.market_cap || 0)) }];
+  const ref = d3.select("#sizeref").html("");
+  ref.append("span").attr("class", "muted").style("font-size", "11px").text("size:");
+  sizes.forEach(s => {
+    const c = ref.append("span").attr("class", "s");
+    c.append("span").attr("class", "o").style("width", 2 * s.r + "px").style("height", 2 * s.r + "px");
+    c.append("span").text(s.l);
+  });
+}
+
+function buildGraph() {
+  const [w, h] = size();
+  sim = d3.forceSimulation(nodes)
+    .force("link", d3.forceLink(links.filter(visibleLink)).id(d => d.id).distance(85).strength(0.12))
+    .force("charge", d3.forceManyBody().strength(-230))
+    .force("center", d3.forceCenter(w / 2, h / 2))
+    .force("collide", d3.forceCollide().radius(d => sizeFn(d) + 5));
+
+  gLink.selectAll("path").data(links).join("path")
+    .attr("stroke", d => REL_COLOR[d.relation]).attr("stroke-width", linkWidth)
+    .attr("stroke-opacity", d => REL_OPACITY[d.relation])
+    .attr("marker-end", d => `url(#arr-${d.relation})`);
+
+  gNode.selectAll("circle").data(nodes).join("circle")
+    .attr("r", sizeFn).attr("fill", nodeFill).attr("stroke", nodeStroke).attr("stroke-width", 1.8)
+    .style("cursor", "pointer")
+    .on("mouseover", showTip).on("mousemove", moveTip).on("mouseout", hideTip)
+    .on("click", (e, d) => { e.stopPropagation(); selectNode(d); })
+    .call(d3.drag()
+      .on("start", (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on("end", (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+  gLabel.selectAll("text").data(nodes).join("text")
+    .attr("class", "label").attr("text-anchor", "middle").text(d => d.id);
+
+  sim.on("tick", ticked);
+  update();
+  setTimeout(fit, 900);
+}
+
+function linkPath(d) {
+  const s = d.source, t = d.target;
+  const r = sizeFn(t) + 7;
+  let dx = t.x - s.x, dy = t.y - s.y, len = Math.hypot(dx, dy) || 1;
+  const ex = t.x - dx / len * r, ey = t.y - dy / len * r;     // stop at target boundary
+  const mx = (s.x + ex) / 2 - dy / len * len * 0.12;          // perpendicular bow
+  const my = (s.y + ey) / 2 + dx / len * len * 0.12;
+  return `M${s.x},${s.y}Q${mx},${my} ${ex},${ey}`;
+}
+function ticked() {
+  gLink.selectAll("path").attr("d", linkPath);
+  gNode.selectAll("circle").attr("cx", d => d.x).attr("cy", d => d.y);
+  gLabel.selectAll("text").attr("x", d => d.x).attr("y", d => d.y - sizeFn(d) - 3);
+  updateHulls();
+}
+
+function updateHulls() {
+  if (!hullsOn) { gHull.selectAll("*").remove(); return; }
+  const groups = {};
+  nodes.forEach(n => { if (visibleNode(n) && n.x != null) (groups[n.group] ||= []).push(n); });
+  const data = Object.entries(groups).filter(([, ns]) => ns.length >= 3).map(([group, ns]) => {
+    const hull = d3.polygonHull(ns.map(n => [n.x, n.y]));
+    const c = d3.polygonCentroid(hull);
+    const pad = d3.max(ns, sizeFn) + 18;
+    const exp = hull.map(([x, y]) => {
+      const dx = x - c[0], dy = y - c[1], L = Math.hypot(dx, dy) || 1;
+      return [x + dx / L * pad, y + dy / L * pad];
+    });
+    return { group, path: hullLine(exp), cx: c[0], top: d3.min(exp, p => p[1]) };
+  });
+  const sel = gHull.selectAll("g.hull").data(data, d => d.group);
+  sel.exit().remove();
+  const enter = sel.enter().append("g").attr("class", "hull");
+  enter.append("path");
+  enter.append("text").attr("class", "hull-label").attr("text-anchor", "middle");
+  const merged = enter.merge(sel);
+  merged.select("path").attr("d", d => d.path)
+    .attr("fill", d => CLUSTER_COLOR[d.group]).attr("fill-opacity", 0.06)
+    .attr("stroke", d => CLUSTER_COLOR[d.group]).attr("stroke-opacity", 0.38).attr("stroke-width", 1.5);
+  merged.select("text").attr("x", d => d.cx).attr("y", d => d.top - 7)
+    .attr("fill", d => CLUSTER_COLOR[d.group]).text(d => d.group.replace("_", " / "));
+}
+
+const visibleNode = n => activeSectors.has(n.group);
+function visibleLink(l) {
+  const s = byId[l.source.id || l.source], t = byId[l.target.id || l.target];
+  return activeRel.has(l.relation) && activeSectors.has(s.group) && activeSectors.has(t.group);
+}
+
+function update() {
+  gLink.selectAll("path").attr("display", d => visibleLink(d) ? null : "none");
+  gNode.selectAll("circle").transition().duration(200).attr("opacity", d => visibleNode(d) ? 1 : 0.07);
+  sim.force("link").links(links.filter(visibleLink));
+  sim.alpha(0.3).restart();
+  selected ? highlight(selected) : clearHighlight();
+  updateLabels();
+  updateHulls();
+}
+function recolor() {
+  gNode.selectAll("circle").transition().duration(250).attr("fill", nodeFill);
+  if (portfolio) applyPortfolioStyle(); else gNode.selectAll("circle").attr("stroke", nodeStroke);
+}
+function resize() {
+  gNode.selectAll("circle").transition().duration(300).attr("r", sizeFn);
+  sim.force("collide").radius(d => sizeFn(d) + 5); sim.alpha(0.3).restart(); updateLabels();
+}
+
+function labelThreshold() { return currentK >= 2 ? 0 : currentK >= 1.2 ? 3 : 6; }
+function updateLabels() {
+  if (portfolio && !selected) {
+    gLabel.selectAll("text").attr("opacity", n =>
+      portfolio.held.has(n.id) ? 1 : portfolio.exposureSet.has(n.id) ? 0.8 : 0.05);
+    return;
+  }
+  const th = labelThreshold(), nbrs = selected ? neighborSet(selected) : null;
+  gLabel.selectAll("text").attr("opacity", n => {
+    if (!visibleNode(n)) return 0.05;
+    if (nbrs) return nbrs.has(n.id) ? 1 : 0.05;
+    return (n.degree >= th || sizeFn(n) >= 16) ? 0.92 : 0;
+  });
+}
+
+function neighborSet(d) {
+  const s = new Set([d.id]);
+  (adj[d.id] || []).forEach(l => { if (visibleLink(l)) { s.add(l.source.id || l.source); s.add(l.target.id || l.target); } });
+  return s;
+}
+function highlight(d) {
+  const nbrs = neighborSet(d);
+  gNode.selectAll("circle").attr("opacity", n => !visibleNode(n) ? 0.07 : nbrs.has(n.id) ? 1 : 0.1)
+    .attr("stroke-width", n => n === d ? 3.2 : 1.8);
+  gLink.selectAll("path").attr("stroke-opacity", l => {
+    if (!visibleLink(l)) return 0;
+    return (l.source.id === d.id || l.target.id === d.id) ? 0.95 : 0.04;
+  }).attr("stroke-width", l => (l.source.id === d.id || l.target.id === d.id) ? linkWidth(l) + 0.8 : linkWidth(l));
+  updateLabels();
+}
+function clearHighlight() {
+  if (portfolio) { applyPortfolioStyle(); return; }
+  gNode.selectAll("circle").attr("opacity", n => visibleNode(n) ? 1 : 0.07)
+    .attr("stroke", nodeStroke).attr("stroke-width", 1.8);
+  gLink.selectAll("path").attr("stroke-opacity", l => REL_OPACITY[l.relation]).attr("stroke-width", linkWidth);
+  updateLabels();
+}
+
+function selectNode(d) { selected = d; highlight(d); renderDetail(d); }
+
+function renderDetail(d) {
+  const el = document.getElementById("detail");
+  if (!d) { el.innerHTML = '<div class="empty">Click a node to inspect its metrics and relationships.</div>'; return; }
+  const m = d.metrics || {};
+  const score = d.sentiment_score, w = score == null ? 0 : Math.abs(score) * 50;
+  const sb = score == null ? "" :
+    `<div class="sentbar"><div class="mid"></div><div class="fill" style="${score >= 0 ? 'left:50%' : 'right:50%'};width:${w}%;background:${sentColor(score)}"></div></div>`;
+  const edges = adj[d.id] || [];
+  const groups = { supplier: [], customer: [], competitor: [] };
+  edges.forEach(l => {
+    const out = (l.source.id || l.source) === d.id;
+    const other = out ? (l.target.id || l.target) : (l.source.id || l.source);
+    groups[l.relation] && groups[l.relation].push({ other, dir: out ? "→" : "←", ev: l.evidence || "", corr: l.corr });
+  });
+  let edgeHtml = "";
+  for (const r of ["supplier", "customer", "competitor"]) {
+    if (!groups[r].length) continue;
+    edgeHtml += `<div class="edgehdr"><span class="dot" style="background:${REL_COLOR[r]}"></span>${r} <span class="muted">· ${groups[r].length}</span></div>`;
+    groups[r].sort((a, b) => (b.corr ?? -1) - (a.corr ?? -1)).forEach(x => {
+      const sub = x.corr != null ? `<span style="color:var(--accent)">ρ ${x.corr}</span>${x.ev ? " · " + x.ev : ""}` : x.ev;
+      edgeHtml += `<div class="edge" data-id="${x.other}"><span class="ar">${x.dir}</span><b>${x.other}</b><span class="ev">${sub}</span></div>`;
+    });
+  }
+  el.innerHTML =
+    `<div class="name">${d.label} <span class="tk">${d.id}</span></div>` +
+    `<div class="meta">${d.industry || d.sector || ""} · ${d.group.replace('_', '/')} · ${money(d.market_cap)}</div>` +
+    `<div class="muted" style="font-size:12px">Sentiment: <b style="color:${score == null ? 'var(--muted)' : sentColor(score)}">${d.sentiment_label || "?"}${score == null ? "" : " (" + score.toFixed(2) + ")"}</b></div>` + sb +
+    (d.sentiment_summary ? `<div class="muted" style="font-size:11.5px">${d.sentiment_summary}</div>` : "") +
+    `<div class="metricgrid">
+       ${metricCard("P/E", ratio(m.pe_ttm))}${metricCard("EV/EBITDA", ratio(m.ev_ebitda))}
+       ${metricCard("Rev growth", pct(m.revenue_growth_yoy))}${metricCard("Gross margin", pct(m.gross_margin))}
+     </div>
+     <div class="muted" style="font-size:11px">Centrality <b style="color:var(--accent)">#${d._crank}</b>/${nodes.length} · ${d.degree} links${d.neighbor_corr != null ? ` · co-move ρ̄ <b style="color:var(--accent)">${d.neighbor_corr}</b>` : ""}</div>
+     <div class="edgelist">${edgeHtml || '<div class="muted" style="font-size:12px">No modeled relationships.</div>'}</div>`;
+  el.querySelectorAll(".edge").forEach(e => e.onclick = () => { const n = byId[e.dataset.id]; if (n) { selectNode(n); focusNode(n); } });
+}
+const metricCard = (l, v) => `<div class="m"><div class="l">${l}</div><div class="v">${v}</div></div>`;
+
+function showTip(e, d) {
+  tooltip.style("opacity", 1).html(
+    `<b>${d.label}</b> <span class="t-meta">${d.id}</span><div class="t-meta">${d.industry || d.sector || ""}</div>` +
+    `<div>${money(d.market_cap)} · <span style="color:${d.sentiment_score == null ? 'var(--muted)' : sentColor(d.sentiment_score)}">${d.sentiment_label || "?"}</span></div>` +
+    `<div class="t-meta">centrality #${d._crank} · ${d.degree} links</div>`);
+  moveTip(e);
+}
+function moveTip(e) {
+  const [w] = size(), x = e.offsetX, flip = x > w - 270;
+  tooltip.style("left", (flip ? x - 260 : x + 16) + "px").style("top", (e.offsetY + 14) + "px");
+}
+function hideTip() { tooltip.style("opacity", 0); }
+
+// Zoom controls + fit
+d3.select("#zin").on("click", () => svg.transition().duration(250).call(zoom.scaleBy, 1.4));
+d3.select("#zout").on("click", () => svg.transition().duration(250).call(zoom.scaleBy, 0.7));
+d3.select("#zfit").on("click", fit);
+function focusNode(n) {
+  const [w, h] = size(), k = Math.max(currentK, 1.4);
+  svg.transition().duration(500).call(zoom.transform,
+    d3.zoomIdentity.translate(w / 2, h / 2).scale(k).translate(-n.x, -n.y));
+}
+function fit() {
+  const vis = nodes.filter(visibleNode); if (!vis.length) return;
+  const [w, h] = size();
+  const [x0, x1] = d3.extent(vis, n => n.x), [y0, y1] = d3.extent(vis, n => n.y);
+  const dx = (x1 - x0) || 1, dy = (y1 - y0) || 1;
+  const k = Math.min(2.2, 0.82 * Math.min(w / dx, h / dy));
+  svg.transition().duration(550).call(zoom.transform,
+    d3.zoomIdentity.translate(w / 2, h / 2).scale(k).translate(-(x0 + x1) / 2, -(y0 + y1) / 2));
+}
+
+// Search
+document.getElementById("search").addEventListener("change", e => {
+  const q = e.target.value.trim().toUpperCase();
+  const hit = nodes.find(n => n.id === q) || nodes.find(n => n.id.includes(q) || (n.label || "").toUpperCase().includes(q));
+  if (hit) { selectNode(hit); focusNode(hit); }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    selected = null; clearHighlight(); renderDetail(null);
+    ["answerCard", "backtestCard", "portfolioCard"].forEach(id =>
+      document.getElementById(id).classList.remove("show"));
+  }
+});
+
+// Markdown (minimal, safe) for RAG answers
+function escapeHtml(s) { return s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+function mdToHtml(src) {
+  const lines = escapeHtml(src).split("\n");
+  let html = "", inList = false;
+  const inline = s => s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[\[([A-Z]{1,6})\]\]/g, '<a class="tick" data-id="$1">$1</a>')
+    .replace(/\[([A-Z]{1,6}) ·([^\]]+)\]/g, '<a class="tick" data-id="$1">$1</a> ·$2');
+  const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
+  for (let ln of lines) {
+    if (/^\s*###?\s+/.test(ln)) { closeList(); html += ln.startsWith("### ") ? `<h5>${inline(ln.slice(4))}</h5>` : `<h4>${inline(ln.replace(/^##\s+/, ""))}</h4>`; }
+    else if (/^\s*[-*]\s+/.test(ln)) { if (!inList) { html += "<ul>"; inList = true; } html += `<li>${inline(ln.replace(/^\s*[-*]\s+/, ""))}</li>`; }
+    else if (/^\s*>\s?/.test(ln)) { closeList(); html += `<blockquote>${inline(ln.replace(/^\s*>\s?/, ""))}</blockquote>`; }
+    else if (ln.trim() === "") { closeList(); }
+    else { closeList(); html += `<p>${inline(ln)}</p>`; }
+  }
+  closeList();
+  return html;
+}
+
+// Ask the vault
+const askBtn = document.getElementById("ask");
+async function ask() {
+  const question = document.getElementById("q").value.trim();
+  if (!question) return;
+  askBtn.disabled = true; askBtn.textContent = "Thinking…";
+  const card = document.getElementById("answerCard"); card.classList.add("show");
+  document.getElementById("answerBody").innerHTML = '<div class="muted">Retrieving and reasoning over the vault…</div>';
+  document.getElementById("answerSrc").innerHTML = "";
+  try {
+    const r = await fetch("/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, k: 8 }) });
+    const data = await r.json();
+    const body = document.getElementById("answerBody");
+    body.innerHTML = mdToHtml(data.answer);
+    body.querySelectorAll("a.tick").forEach(a => a.onclick = () => { const n = byId[a.dataset.id]; if (n) { selectNode(n); focusNode(n); } });
+    const seen = new Set(), src = document.getElementById("answerSrc");
+    (data.sources || []).forEach(s => {
+      if (!s.ticker || seen.has(s.ticker)) return; seen.add(s.ticker);
+      const c = document.createElement("span"); c.className = "chip"; c.textContent = s.ticker;
+      c.onclick = () => { const n = byId[s.ticker]; if (n) { selectNode(n); focusNode(n); } };
+      src.appendChild(c);
+    });
+  } catch (err) { document.getElementById("answerBody").innerHTML = '<div class="muted">Error: ' + err + "</div>"; }
+  askBtn.disabled = false; askBtn.textContent = "Ask the vault";
+}
+askBtn.addEventListener("click", ask);
+document.getElementById("q").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ask(); });
+document.getElementById("closeAns").addEventListener("click", () => document.getElementById("answerCard").classList.remove("show"));
+
+// Backtest panel — equity curve + IC stats
+let backtestData = null;
+const btCard = document.getElementById("backtestCard");
+async function openBacktest() {
+  btCard.classList.add("show");
+  if (!backtestData) {
+    document.getElementById("btStats").innerHTML = '<div class="muted" style="padding:6px">Loading backtest…</div>';
+    try { backtestData = await (await fetch("/backtest.json")).json(); }
+    catch (e) { document.getElementById("btStats").innerHTML = '<div class="muted" style="padding:6px">Error: ' + e + '</div>'; return; }
+  }
+  renderBacktest(backtestData);
+}
+function renderBacktest(d) {
+  const p = d.portfolio, b = d.best;
+  document.querySelector("#backtestCard .bt-meta").textContent =
+    `${d.trading_days}d · ${d.n_customers} customers · ${d.source}`;
+  const stat = (l, v) => `<div class="s"><div class="l">${l}</div><div class="v">${v}</div></div>`;
+  document.getElementById("btStats").innerHTML =
+    stat("Sharpe", p.sharpe ?? "—") +
+    stat("Ann. return", (p.annualized_return * 100).toFixed(1) + "%") +
+    stat("Hit rate", p.hit_rate != null ? (p.hit_rate * 100).toFixed(0) + "%" : "—") +
+    stat("Best IC", b ? (b.ic >= 0 ? "+" : "") + b.ic.toFixed(3) : "—");
+  drawEquity(p.equity_curve || []);
+  drawHeatmap(d.ic_grid || {}, b);
+  const cust = document.getElementById("btCustomers"); cust.innerHTML = "";
+  Object.entries(d.top_customers_by_ic || {}).forEach(([t, ic]) => {
+    const c = document.createElement("span"); c.className = "chip";
+    c.textContent = `${t} ${ic >= 0 ? "+" : ""}${ic.toFixed(2)}`;
+    c.onclick = () => { const n = byId[t]; if (n) { selectNode(n); focusNode(n); } };
+    cust.appendChild(c);
+  });
+}
+function drawEquity(eq) {
+  const svg = d3.select("#btChart"); svg.selectAll("*").remove();
+  if (!eq.length) return;
+  const W = svg.node().clientWidth || 440, H = 184, m = { t: 10, r: 14, b: 20, l: 42 };
+  const x = d3.scaleLinear().domain([0, eq.length - 1]).range([m.l, W - m.r]);
+  const lo = Math.min(1, d3.min(eq)), hi = Math.max(1, d3.max(eq));
+  const y = d3.scaleLinear().domain([lo * 0.998, hi * 1.002]).range([H - m.b, m.t]);
+  const grad = svg.append("defs").append("linearGradient").attr("id", "eqgrad")
+    .attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 1);
+  grad.append("stop").attr("offset", "0%").attr("stop-color", "#41d178").attr("stop-opacity", 0.45);
+  grad.append("stop").attr("offset", "100%").attr("stop-color", "#41d178").attr("stop-opacity", 0);
+  const area = d3.area().x((d, i) => x(i)).y0(y(1)).y1(d => y(d)).curve(d3.curveMonotoneX);
+  const line = d3.line().x((d, i) => x(i)).y(d => y(d)).curve(d3.curveMonotoneX);
+  svg.append("line").attr("x1", m.l).attr("x2", W - m.r).attr("y1", y(1)).attr("y2", y(1))
+    .attr("stroke", "#2c3645").attr("stroke-dasharray", "3,3");
+  svg.append("path").datum(eq).attr("fill", "url(#eqgrad)").attr("d", area);
+  svg.append("path").datum(eq).attr("fill", "none").attr("stroke", "#41d178").attr("stroke-width", 1.8).attr("d", line);
+  svg.append("g").attr("transform", `translate(${m.l},0)`)
+    .call(d3.axisLeft(y).ticks(4).tickFormat(d3.format(".2f")))
+    .call(g => g.select(".domain").remove());
+  svg.append("text").attr("x", W - m.r).attr("y", H - 5).attr("text-anchor", "end")
+    .text(`${eq.length} trading days · growth of $1 (market-neutral)`);
+}
+function drawHeatmap(grid, best) {
+  const el = document.getElementById("btHeatmap");
+  const cells = Object.values(grid).filter(c => c && c.ic != null);
+  if (!cells.length) { el.innerHTML = ""; return; }
+  const ks = [...new Set(cells.map(c => c.k))].sort((a, b) => a - b);
+  const hs = [...new Set(cells.map(c => c.h))].sort((a, b) => a - b);
+  const maxAbs = d3.max(cells, c => Math.abs(c.ic)) || 0.05;
+  const color = d3.scaleLinear().domain([-maxAbs, 0, maxAbs])
+    .range(["#e5534b", "#171d28", "#41d178"]).clamp(true);
+  const byKey = Object.fromEntries(cells.map(c => [`${c.k}_${c.h}`, c]));
+  let html = `<div class="heat" style="grid-template-columns:34px repeat(${hs.length},1fr)">`;
+  html += `<div class="rl"></div>` + hs.map(h => `<div class="hd">h=${h}d</div>`).join("");
+  for (const k of ks) {
+    html += `<div class="rl">k=${k}d</div>`;
+    for (const h of hs) {
+      const c = byKey[`${k}_${h}`];
+      if (!c) { html += `<div class="cell" style="background:#171d28">—</div>`; continue; }
+      const isBest = best && best.k === k && best.h === h;
+      html += `<div class="cell${isBest ? " best" : ""}" style="background:${color(c.ic)}" `
+        + `title="${c.obs} obs">${c.ic >= 0 ? "+" : ""}${c.ic.toFixed(3)}</div>`;
+    }
+  }
+  el.innerHTML = html + "</div>";
+}
+document.getElementById("openBt").addEventListener("click", openBacktest);
+document.getElementById("closeBt").addEventListener("click", () => btCard.classList.remove("show"));
+
+// Portfolio exposure overlay
+const pfCard = document.getElementById("portfolioCard");
+function parsePortfolio(text) {
+  const ignored = [], holdings = [], weights = new Map();
+  text.split(/[\n,]+/).map(s => s.trim()).filter(Boolean).forEach(it => {
+    const m = it.match(/^([A-Za-z.\-]+)\s*[:=]?\s*([\d.]+)?\s*%?$/);
+    if (!m) { ignored.push(it); return; }
+    const tic = m[1].toUpperCase();
+    if (!byId[tic]) { ignored.push(tic); return; }
+    if (!weights.has(tic)) holdings.push(tic);
+    weights.set(tic, m[2] ? parseFloat(m[2]) : 1);
+  });
+  return { holdings, weights, ignored };
+}
+function analyzePortfolio(holdings, weights) {
+  const held = new Set(holdings);
+  let totalW = 0; holdings.forEach(t => totalW += weights.get(t) || 1); totalW = totalW || 1;
+  let wSent = 0, sentW = 0, wCent = 0;
+  holdings.forEach(t => {
+    const n = byId[t], w = weights.get(t) || 1;
+    if (n.sentiment_score != null) { wSent += w * n.sentiment_score; sentW += w; }
+    wCent += w * (n.centrality || 0);
+  });
+  const exp = {};
+  holdings.forEach(t => (adj[t] || []).forEach(l => {
+    const a = l.source.id || l.source, b = l.target.id || l.target;
+    const other = a === t ? b : a;
+    if (held.has(other) || !byId[other]) return;
+    const e = exp[other] || (exp[other] = { holders: new Set(), rel: {}, corr: [] });
+    e.holders.add(t); e.rel[l.relation] = (e.rel[l.relation] || 0) + 1;
+    if (l.corr != null) e.corr.push(l.corr);
+  }));
+  const list = Object.entries(exp).map(([tic, e]) => ({
+    tic, holders: [...e.holders], n: e.holders.size,
+    rel: Object.entries(e.rel).sort((a, b) => b[1] - a[1])[0][0],
+    avgCorr: e.corr.length ? e.corr.reduce((s, x) => s + x, 0) / e.corr.length : null,
+    mcap: byId[tic].market_cap || 0,
+  })).sort((a, b) => b.n - a.n || (b.avgCorr || 0) - (a.avgCorr || 0));
+  return {
+    held, exposureSet: new Set(Object.keys(exp)),
+    wSent: sentW ? wSent / sentW : null, wCent: wCent / totalW,
+    connMcap: list.reduce((s, e) => s + (e.mcap || 0), 0), list,
+  };
+}
+function applyPortfolioStyle() {
+  if (!portfolio) return;
+  const held = portfolio.held, exp = portfolio.exposureSet;
+  gNode.selectAll("circle")
+    .attr("opacity", n => held.has(n.id) ? 1 : exp.has(n.id) ? 0.9 : 0.06)
+    .attr("stroke", n => held.has(n.id) ? "#ffce5c" : nodeStroke(n))
+    .attr("stroke-width", n => held.has(n.id) ? 3.6 : 1.8);
+  gLink.selectAll("path").attr("stroke-opacity", l => {
+    const a = l.source.id, b = l.target.id, touchesHeld = held.has(a) || held.has(b);
+    const aIn = held.has(a) || exp.has(a), bIn = held.has(b) || exp.has(b);
+    return (aIn && bIn && touchesHeld) ? 0.8 : 0.02;
+  }).attr("stroke-width", linkWidth);
+  updateLabels();
+}
+function renderPortfolio(p, ignored) {
+  const stat = (l, v) => `<div class="s"><div class="l">${l}</div><div class="v">${v}</div></div>`;
+  const sent = p.wSent == null ? "—"
+    : `<span style="color:${sentColor(p.wSent)}">${p.wSent >= 0 ? "+" : ""}${p.wSent.toFixed(2)}</span>`;
+  const shared = p.list.filter(e => e.n >= 2);
+  let html = `<div class="pf-stats">${stat("Holdings", p.held.size)}${stat("Wtd sentiment", sent)}`
+    + `${stat("Connected exposure", money(p.connMcap))}${stat("Wtd centrality", p.wCent.toFixed(4))}</div>`;
+  if (shared.length)
+    html += `<div class="pf-warn">⚠ ${shared.length} name(s) sit behind ≥2 of your positions — concentrated supply-chain exposure.</div>`;
+  html += `<div class="bt-sub">Hidden exposure — names your book connects to but doesn't hold:</div><div id="pfExposure">`;
+  p.list.slice(0, 12).forEach(e => {
+    html += `<div class="pf-exp" data-id="${e.tic}"><span class="t">${e.tic}</span>`
+      + `<span class="r" style="background:${REL_COLOR[e.rel]}22;color:${REL_COLOR[e.rel]}">${e.rel}</span>`
+      + `<span class="meta">${e.n} pos${e.avgCorr != null ? " · ρ " + e.avgCorr.toFixed(2) : ""} · ${money(e.mcap)}</span></div>`;
+  });
+  html += `</div>`;
+  if (ignored.length) html += `<div class="pf-ignored">Ignored (unknown): ${ignored.join(", ")}</div>`;
+  const r = document.getElementById("pfResults"); r.innerHTML = html;
+  r.querySelectorAll(".pf-exp").forEach(el => el.onclick = () => { const n = byId[el.dataset.id]; if (n) focusNode(n); });
+}
+function runPortfolio() {
+  const { holdings, weights, ignored } = parsePortfolio(document.getElementById("pfInput").value);
+  if (!holdings.length) {
+    document.getElementById("pfResults").innerHTML = '<div class="pf-ignored">No known tickers found. Try e.g. "AAPL, NVDA, DELL".</div>';
+    return;
+  }
+  portfolio = analyzePortfolio(holdings, weights);
+  applyPortfolioStyle();
+  renderPortfolio(portfolio, ignored);
+}
+function clearPortfolio() {
+  portfolio = null;
+  document.getElementById("pfResults").innerHTML = "";
+  clearHighlight();
+}
+document.getElementById("openPf").addEventListener("click", () => pfCard.classList.add("show"));
+document.getElementById("closePf").addEventListener("click", () => pfCard.classList.remove("show"));
+document.getElementById("pfRun").addEventListener("click", runPortfolio);
+document.getElementById("pfClear").addEventListener("click", clearPortfolio);
+
+const hullChip = document.getElementById("hullToggle");
+hullChip.addEventListener("click", () => {
+  hullsOn = !hullsOn; hullChip.classList.toggle("off", !hullsOn); updateHulls();
+});
+
+window.addEventListener("resize", () => { if (sim) { const [w, h] = size(); sim.force("center", d3.forceCenter(w / 2, h / 2)).alpha(0.2).restart(); } });
+</script>
+</body>
+</html>

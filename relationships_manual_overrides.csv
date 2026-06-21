@@ -1,0 +1,65 @@
+source,target_ticker,relation,confidence,evidence
+AAPL,QCOM,supplier,high,Baseband/modem chips supplied to iPhone
+AAPL,SWKS,supplier,high,RF front-end modules
+AAPL,AVGO,supplier,high,Wireless/RF and connectivity components
+AAPL,QRVO,supplier,high,RF components
+DELL,INTC,supplier,high,Server/PC CPUs
+DELL,AMD,supplier,high,Server/PC CPUs and GPUs
+DELL,NVDA,supplier,high,Data-center GPUs
+DELL,MU,supplier,high,DRAM/NAND memory
+HPQ,INTC,supplier,high,PC CPUs
+HPE,INTC,supplier,high,Server CPUs
+HPE,NVDA,supplier,high,AI/data-center GPUs
+SMCI,NVDA,supplier,high,AI server GPUs
+SMCI,AMD,supplier,high,Server CPUs/GPUs
+SMCI,INTC,supplier,high,Server CPUs
+ANET,AVGO,supplier,high,Merchant switching silicon
+CSCO,AVGO,supplier,high,Merchant networking silicon
+MSFT,NVDA,supplier,high,Azure AI/data-center GPUs
+MSFT,AMD,supplier,high,Azure CPUs/GPUs
+MSFT,INTC,supplier,high,Server CPUs
+MSFT,AVGO,supplier,high,Networking/custom silicon
+MSFT,MU,supplier,high,Data-center memory
+AMZN,NVDA,supplier,high,AWS data-center GPUs
+AMZN,AMD,supplier,high,AWS CPUs/GPUs
+AMZN,INTC,supplier,high,AWS server CPUs
+AMZN,MU,supplier,high,Data-center memory
+GOOGL,NVDA,supplier,high,Google Cloud GPUs
+GOOGL,AVGO,supplier,high,Co-designed TPU silicon
+GOOGL,INTC,supplier,high,Server CPUs
+META,NVDA,supplier,high,AI training GPUs
+META,AMD,supplier,high,Data-center CPUs/GPUs
+META,AVGO,supplier,high,Networking silicon
+ORCL,NVDA,supplier,high,OCI data-center GPUs
+ORCL,AMD,supplier,high,Cloud CPUs
+IBM,NVDA,supplier,medium,AI infrastructure GPUs
+TSLA,ON,supplier,high,Power semiconductors for EV drivetrain
+TSLA,NXPI,supplier,high,Automotive microcontrollers
+TSLA,NVDA,supplier,medium,Infotainment/AI compute
+GM,QCOM,supplier,high,Snapdragon Digital Chassis
+GM,NXPI,supplier,high,Automotive processors
+GM,ON,supplier,high,Power/sensor semiconductors
+GM,ADI,supplier,medium,Analog/BMS chips
+F,QCOM,supplier,high,Digital cockpit/connectivity
+F,NXPI,supplier,high,Automotive microcontrollers
+F,ON,supplier,high,Power semiconductors
+APTV,NXPI,supplier,high,Automotive processors and networking
+APTV,ON,supplier,high,Power/sensing semiconductors
+APTV,QCOM,supplier,medium,Connectivity/ADAS compute
+BWA,ON,supplier,high,Power semiconductors for electrification
+BWA,NXPI,supplier,medium,Automotive controllers
+VZ,QCOM,supplier,high,5G modems/RF
+VZ,CSCO,supplier,high,Networking equipment
+VZ,ANET,supplier,medium,Data-center switching
+VZ,AVGO,supplier,high,Networking/optical silicon
+T,QCOM,supplier,high,5G modems/RF
+T,CSCO,supplier,high,Networking equipment
+T,AVGO,supplier,high,Networking/optical silicon
+TMUS,QCOM,supplier,high,5G modems/RF
+TMUS,CSCO,supplier,high,Networking equipment
+CMCSA,CSCO,supplier,high,Networking/broadband equipment
+CMCSA,AVGO,supplier,high,Broadband/DOCSIS silicon
+NFLX,AMZN,supplier,high,AWS cloud infrastructure
+CHTR,AVGO,supplier,high,Broadband/DOCSIS silicon
+CHTR,CSCO,supplier,medium,Networking equipment
+
