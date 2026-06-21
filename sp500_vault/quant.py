@@ -86,6 +86,7 @@ def compute_and_save(rows: list[dict[str, Any]]) -> dict[str, dict]:
             "market_cap": raw_d.get("market_cap"),
             "enterprise_value": raw_d.get("enterprise_value"),
             "employees": raw_d.get("employees"),
+            "data_source": raw_d.get("data_source"),
             "metrics": metrics,
         }
         _quant_path(tic).write_text(json.dumps(note, indent=2, default=str), encoding="utf-8")

@@ -277,4 +277,17 @@ set + the stated predicate, so `parse_predicates`/`_apply_filters` regressions f
 loudly without hardcoding membership that market data would drift. With this the
 "graph filter ∘ metric reducer" track is feature-complete; remaining roadmap work
 is the institutional-grade data/observability items above (hosted reranker,
-fundamentals feed, Phoenix tracing).
+Phoenix tracing).
+
+**FMP fundamentals feed (shipped — first cut of the P0 fundamentals item).** The
+quant layer now reads **Financial Modeling Prep** (cleaner TTM ratios/margins from
+filings) instead of scraped yfinance, controlled by `FUNDAMENTALS_SOURCE`
+(`auto` → FMP when `FMP_API_KEY` is set, else yfinance; or force `fmp`/`yfinance`).
+FMP is primary with **automatic yfinance fallback** per ticker, and field *scales*
+are normalized to one convention (notably debt/equity, which downstream treats as a
+percent) so a mixed run stays internally consistent. Each quant note records its
+`data_source`, and `pipeline stats` shows the source split. The FMP→dict mapping is
+a pure function (`market._map_fmp`) with unit tests, so it's guarded without
+needing a key or network. This is the budget tier of point-in-time fundamentals;
+true PIT/restatement-aware data (Capital IQ / FactSet) remains the institutional
+upgrade, and full-tape prices (Polygon/Databento) is the matching P1.

@@ -65,6 +65,61 @@ def test_num_guards_nan_inf():
     assert vault_render._num("3.5") == 3.5
 
 
+# ── FMP fundamentals mapping ─────────────────────────────────────────────────
+
+def test_fmp_num_coercions():
+    from sp500_vault.data_sources import market
+    assert market._fnum("12.5") == 12.5
+    assert market._fnum(None) is None
+    assert market._fnum("n/a") is None
+    assert market._fnum(float("nan")) is None
+    assert market._iint("29600") == 29600
+
+
+def test_map_fmp_fields_and_scales():
+    from sp500_vault.data_sources import market
+    # FMP "stable" API field names (symbol= query param; PE/PS/PB/PEG/margins/DE in
+    # ratios-ttm, ROE/ROA/EV-EBITDA in key-metrics-ttm).
+    profile = [{"companyName": "NVIDIA Corporation", "sector": "Technology",
+                "industry": "Semiconductors", "marketCap": 3.0e12,
+                "fullTimeEmployees": "29600", "beta": 1.7}]
+    km = [{"evToEBITDATTM": 55.0, "enterpriseValueTTM": 3.1e12,
+           "currentRatioTTM": 4.2, "returnOnEquityTTM": 0.91,
+           "returnOnAssetsTTM": 0.45, "marketCap": 3.0e12}]
+    ratios = [{"priceToEarningsRatioTTM": 60.0, "priceToSalesRatioTTM": 35.0,
+               "priceToBookRatioTTM": 50.0, "priceToEarningsGrowthRatioTTM": 1.2,
+               "grossProfitMarginTTM": 0.73, "operatingProfitMarginTTM": 0.54,
+               "netProfitMarginTTM": 0.49, "debtToEquityRatioTTM": 0.45}]
+    income = [{"revenue": 60.9e9, "epsDiluted": 11.9},   # newest first
+              {"revenue": 26.9e9, "epsDiluted": 3.3},
+              {"revenue": 27.0e9, "epsDiluted": 3.85},
+              {"revenue": 16.7e9, "epsDiluted": 6.9}]
+    d = market._map_fmp("NVDA", profile, km, ratios, income, None)
+    assert d["data_source"] == "fmp"
+    assert d["name"] == "NVIDIA Corporation" and d["employees"] == 29600
+    assert d["market_cap"] == 3.0e12 and d["pe_ttm"] == 60.0
+    assert d["gross_margin"] == 0.73 and d["ev_ebitda"] == 55.0
+    # FMP D/E ratio 0.45 -> percent 45.0 (yfinance convention `_de` then shows 0.45x)
+    assert d["debt_to_equity"] == 45.0
+    assert vault_render._de(d["debt_to_equity"]) == "0.45"
+    # YoY uses the two latest years: (60.9-26.9)/26.9
+    assert abs(d["revenue_growth_yoy"] - (60.9e9 - 26.9e9) / 26.9e9) < 1e-9
+    assert d["revenue_cagr_3yr"] is not None and d["revenue_cagr_3yr"] > 0
+
+
+def test_map_fmp_empty_profile():
+    from sp500_vault.data_sources import market
+    assert market._map_fmp("X", [], [], [], [], None) == {}
+
+
+def test_fmp_fundamentals_no_key(monkeypatch):
+    from sp500_vault import config
+    from sp500_vault.data_sources import market
+    monkeypatch.setattr(config, "FMP_API_KEY", "")
+    assert market._fmp_get("profile", "NVDA") is None
+    assert market._fmp_fundamentals("NVDA") == {}   # no key -> no network -> {}
+
+
 # ── graph math ───────────────────────────────────────────────────────────────
 
 def test_clean_sanitizes_nan():

@@ -55,7 +55,16 @@ def _stats() -> None:
     """Print a coverage/status snapshot across every layer."""
     print("S&P 500 RAG Vault — status\n")
     print(f"  universe        {len(TICKERS)} tickers across {len(SECTORS)} clusters")
-    print(f"  quant           {len(list(config.QUANT_DIR.glob('*.json')))}/{len(TICKERS)} notes")
+    qfiles = list(config.QUANT_DIR.glob("*.json"))
+    src_counts: dict[str, int] = {}
+    for p in qfiles:
+        try:
+            src = json.loads(p.read_text(encoding="utf-8")).get("data_source") or "unknown"
+        except Exception:  # noqa: BLE001
+            src = "unknown"
+        src_counts[src] = src_counts.get(src, 0) + 1
+    src_str = ", ".join(f"{v} {k}" for k, v in sorted(src_counts.items())) if src_counts else "—"
+    print(f"  quant           {len(qfiles)}/{len(TICKERS)} notes  [{src_str}]")
 
     sj = list(config.SENTIMENT_DIR.glob("*.json"))
     dates = []

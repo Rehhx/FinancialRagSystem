@@ -11,6 +11,18 @@ S&P 500 is "add a sector cluster to `universe.py` and run the same layers" — a
 it's cheap, because extraction is **incremental** (already-extracted tickers are
 skipped unless you pass `--force`).
 
+## Demo
+
+📺 **[Watch the walkthrough on YouTube →](https://youtu.be/mjyl6hkgMoY)**
+
+| | |
+|:---:|:---:|
+| ![Graph explorer](images/img.png) | ![Ask the vault](images/img_2.png) |
+| Supply-chain graph — node size = **systemic centrality**, cluster hulls per sector, edges weighted by **return correlation** | **Ask the vault:** a multi-hop aggregate (*"average P/E of the competitors of NVIDIA's suppliers"*) answered as one grounded number — **computed in Python**, with the member breakdown |
+
+![Portfolio exposure + lead-lag backtest](images/img_3.png)
+*Portfolio exposure overlay (your holdings' connected supply-chain risk) + the lead-lag backtest — long/short equity curve and the Information-Coefficient heatmap.*
+
 ## Architecture
 
 ```
@@ -23,7 +35,7 @@ Ingestion ──► Processing ──► Vault (markdown + [[links]]) ──► 
 
 | Layer | Module | Output |
 |---|---|---|
-| Quant | `quant.py` (`data_sources/market.py`) | `data/quant/<T>.json` |
+| Quant | `quant.py` (`data_sources/market.py` — FMP → yfinance) | `data/quant/<T>.json` |
 | Relationships | `relationships.py` (`data_sources/edgar.py`, `news.py`) | `data/relationships.db` |
 | Sentiment | `sentiment.py` (`data_sources/news.py` — Finnhub + Marketaux + NewsAPI + Alpha Vantage) | `data/sentiment/<T>.json` |
 | Signals | `signals.py` (Alpaca IEX → yfinance) | `data/signals/correlations.json`, `vault/_Signals.md` |
@@ -40,9 +52,19 @@ Secrets live in `.env` (already present): `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
 `FINNHUB_API_KEY`. Optional extra news feeds broaden sentiment coverage —
 `MARKETAUX_API_KEY`, `NEWS_API_KEY` (NewsAPI.org), `ALPHA_API_KEY` (Alpha
 Vantage); each is skipped gracefully if absent, and the set/order is configurable
-via `NEWS_PROVIDERS`. SEC EDGAR wants a contact email — set `SEC_CONTACT_EMAIL` in
+via `NEWS_PROVIDERS`. For **cleaner fundamentals**, set `FMP_API_KEY` (Financial
+Modeling Prep): with `FUNDAMENTALS_SOURCE=auto` (default) the quant layer uses FMP
+when the key is present and falls back to yfinance otherwise — no other change
+needed. SEC EDGAR wants a contact email — set `SEC_CONTACT_EMAIL` in
 `.env` (optional). Model defaults to `claude-opus-4-8`; override with
 `ANTHROPIC_MODEL` / `ANTHROPIC_EFFORT`.
+
+**Answer LLM is pluggable.** The RAG *answer* prose is written by Claude by
+default; set `ANSWER_PROVIDER=openai` (with `OPENAI_ANSWER_MODEL`, default
+`gpt-4o`) to use OpenAI instead. This only changes *who narrates* — graph/quant
+answers are still computed in Python and semantic answers still summarize the same
+retrieved chunks — so pick by cost/credits. (Relationship extraction and sentiment
+always use Claude's structured outputs.)
 
 ```bash
 .venv/Scripts/python.exe -m pip install -r requirements.txt
@@ -59,6 +81,7 @@ python -m sp500_vault.pipeline all --tickers NVDA,AMD,AAPL
 
 # Individual layers (they refresh on independent schedules)
 python -m sp500_vault.pipeline quant
+python -m sp500_vault.pipeline quant --force   # re-fetch all fundamentals (e.g. after adding FMP_API_KEY)
 python -m sp500_vault.pipeline relationships --sector cloud_software   # one cluster at a time
 python -m sp500_vault.pipeline sentiment
 python -m sp500_vault.pipeline signals        # price co-movement validation + edge weights
@@ -251,6 +274,10 @@ routed to from plain English.
 - Relationship extraction has false positives by nature — every edge carries a
   `confidence` and `extraction_method`, and only edges resolving to a modeled
   ticker render as `[[wikilinks]]` (others show as *external / not modeled*).
-- yfinance fundamentals are fine for v1; swap in Polygon/FMP for cleaner data.
+- Fundamentals default to yfinance; set `FMP_API_KEY` to use Financial Modeling
+  Prep (cleaner TTM ratios from filings) with automatic yfinance fallback. Field
+  scales are normalized across sources (notably debt/equity) so a mixed run stays
+  consistent; each quant note records its `data_source`. (Polygon is a further
+  swap-in for prices/fundamentals.)
 - Private suppliers (Foxconn, etc.) are intentionally surfaced as external stubs
   rather than silently dropped.

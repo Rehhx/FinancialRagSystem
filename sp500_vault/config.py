@@ -41,6 +41,7 @@ ALPACA_API_SECRET = os.getenv("ALPACA_API_SECRET", "")
 ALPHA_API_KEY = os.getenv("ALPHA_API_KEY", "")          # Alpha Vantage NEWS_SENTIMENT
 NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")            # NewsAPI.org /everything
 MARKETAUX_API_KEY = os.getenv("MARKETAUX_API_KEY", "")  # Marketaux /news/all
+FMP_API_KEY = os.getenv("FMP_API_KEY", "")              # Financial Modeling Prep fundamentals
 
 # ── Models / tunables ────────────────────────────────────────────────────────
 # Default to the most capable Claude model; override with ANTHROPIC_MODEL.
@@ -48,6 +49,17 @@ ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-8")
 # Effort applies on Opus 4.6+/Sonnet 4.6 — "low" keeps extraction/sentiment cheap.
 ANTHROPIC_EFFORT = os.getenv("ANTHROPIC_EFFORT", "low")
 OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+
+# Which LLM writes the final RAG answer prose: "claude" or "openai". The answer
+# layer only *narrates* (graph numbers are computed in Python, semantic answers
+# summarize retrieved chunks), so either works — pick by cost/credits. Extraction
+# and sentiment always use Claude (structured-output schemas).
+ANSWER_PROVIDER = os.getenv("ANSWER_PROVIDER", "claude")
+OPENAI_ANSWER_MODEL = os.getenv("OPENAI_ANSWER_MODEL", "gpt-4o")
+
+# Fundamentals source: "auto" (FMP when FMP_API_KEY is set, else yfinance),
+# "fmp" (force FMP, fall back to yfinance on failure), or "yfinance".
+FUNDAMENTALS_SOURCE = os.getenv("FUNDAMENTALS_SOURCE", "auto")
 
 # RAG reranker: "llm" (Claude listwise — best on this domain per eval), "cross_encoder"
 # (local cross-encoder; needs a finance-tuned model to help — generic MiniLM hurt),

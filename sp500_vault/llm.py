@@ -160,25 +160,52 @@ _RAG_SYSTEM = (
     "explicit supplier/customer/competitor relationships rendered as [[wikilinks]]. "
     "Use the relationship structure to reason about connected exposure (e.g. who is "
     "exposed to a given company's guidance). Ground every claim in the provided context "
-    "and cite the ticker/section it came from. If the context is insufficient, say so."
+    "and cite the ticker/section it came from. If the context is insufficient, say so.\n"
+    "IMPORTANT: when the context includes a pre-computed 'Graph · ...' summary (an "
+    "aggregate value, ranking, count, or filtered set), report that value and that "
+    "membership EXACTLY as given — do not recompute, re-sum, or drop/add members "
+    "yourself. Those numbers are computed deterministically; your job is to present "
+    "them, not to redo the arithmetic."
 )
 
 
-def rag_answer(question: str, contexts: list[str]) -> str:
-    """Answer a natural-language question grounded in retrieved note chunks."""
+def _rag_user_prompt(question: str, contexts: list[str]) -> str:
     context_block = "\n\n---\n\n".join(contexts)
-    user = (
-        f"Context from the vault:\n\n{context_block}\n\n"
-        f"=== QUESTION ===\n{question}"
-    )
+    return f"Context from the vault:\n\n{context_block}\n\n=== QUESTION ===\n{question}"
+
+
+def _rag_answer_claude(question: str, contexts: list[str]) -> str:
     with anthropic_client().messages.stream(
         model=config.ANTHROPIC_MODEL,
         max_tokens=2000,
         system=_RAG_SYSTEM,
-        messages=[{"role": "user", "content": user}],
+        messages=[{"role": "user", "content": _rag_user_prompt(question, contexts)}],
     ) as stream:
         message = stream.get_final_message()
     return _first_text(message)
+
+
+def _rag_answer_openai(question: str, contexts: list[str]) -> str:
+    resp = openai_client().chat.completions.create(
+        model=config.OPENAI_ANSWER_MODEL,
+        max_tokens=2000,
+        messages=[
+            {"role": "system", "content": _RAG_SYSTEM},
+            {"role": "user", "content": _rag_user_prompt(question, contexts)},
+        ],
+    )
+    return (resp.choices[0].message.content or "").strip()
+
+
+def rag_answer(question: str, contexts: list[str]) -> str:
+    """Answer a natural-language question grounded in retrieved note chunks.
+
+    Provider is configurable (``ANSWER_PROVIDER``): the answer LLM only narrates
+    pre-computed/retrieved context, so Claude or OpenAI both work — choose by cost.
+    """
+    if config.ANSWER_PROVIDER.lower() == "openai":
+        return _rag_answer_openai(question, contexts)
+    return _rag_answer_claude(question, contexts)
 
 
 # ── Answer faithfulness judge (eval) ─────────────────────────────────────────
