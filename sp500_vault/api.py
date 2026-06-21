@@ -24,12 +24,18 @@ _GRAPH_FILE = config.DATA_DIR / "graph" / "graph.json"
 _BACKTEST_FILE = config.SIGNALS_DIR / "backtest.json"
 
 
+class Turn(BaseModel):
+    role: str
+    content: str
+
+
 class QueryRequest(BaseModel):
     question: str
     k: int = 6
     ticker: str | None = None
     sector: str | None = None
     sentiment: str | None = None
+    history: list[Turn] | None = None   # prior turns, for conversational follow-ups
 
 
 class Source(BaseModel):
@@ -40,6 +46,7 @@ class Source(BaseModel):
 class QueryResponse(BaseModel):
     answer: str
     sources: list[Source]
+    resolved_question: str | None = None
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -87,8 +94,9 @@ def universe() -> list[dict]:
 
 @app.post("/query", response_model=QueryResponse)
 def query(req: QueryRequest) -> QueryResponse:
+    history = [t.model_dump() for t in req.history] if req.history else None
     result = rag.query(
         req.question, k=req.k, ticker=req.ticker,
-        sector=req.sector, sentiment=req.sentiment,
+        sector=req.sector, sentiment=req.sentiment, history=history,
     )
     return QueryResponse(**result)

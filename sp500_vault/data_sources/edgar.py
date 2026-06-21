@@ -8,6 +8,7 @@ req/s; we stay well under that with small sleeps.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import re
 import time
@@ -89,6 +90,104 @@ def _extract_business_section(text: str) -> str:
     s = best[1]
     e = next((x for x in ends if x > s), len(norm))
     return norm[s:e][: config.EDGAR_BUSINESS_MAX_CHARS]
+
+
+# ── 8-K material-event ingestion ─────────────────────────────────────────────
+# 8-K item codes ARE the material-event taxonomy — mapping them to labels gives a
+# free, structured catalyst signal straight from the submissions index (no need to
+# fetch each document).
+
+_8K_ITEMS = {
+    "1.01": "Entry into a Material Definitive Agreement",
+    "1.02": "Termination of a Material Definitive Agreement",
+    "1.03": "Bankruptcy or Receivership",
+    "2.01": "Completion of Acquisition or Disposition of Assets",
+    "2.02": "Results of Operations and Financial Condition (earnings)",
+    "2.03": "Creation of a Direct Financial Obligation",
+    "2.04": "Triggering Event Accelerating a Financial Obligation",
+    "2.05": "Costs Associated with Exit or Disposal Activities",
+    "2.06": "Material Impairments",
+    "3.01": "Notice of Delisting or Failure to Satisfy a Listing Rule",
+    "3.02": "Unregistered Sales of Equity Securities",
+    "3.03": "Material Modification to Rights of Security Holders",
+    "4.01": "Change in Registrant's Certifying Accountant",
+    "4.02": "Non-Reliance on Previously Issued Financials",
+    "5.01": "Changes in Control of Registrant",
+    "5.02": "Departure / Appointment of Directors or Officers",
+    "5.03": "Amendments to Articles of Incorporation or Bylaws",
+    "5.07": "Submission of Matters to a Vote of Security Holders",
+    "7.01": "Regulation FD Disclosure",
+    "8.01": "Other Events",
+    "9.01": "Financial Statements and Exhibits",
+}
+
+
+def _item_label(code: str) -> str:
+    return _8K_ITEMS.get(code.strip(), f"Item {code.strip()}")
+
+
+def _parse_8k_filings(recent: dict, lookback_days: int, limit: int,
+                      today: dt.date | None = None) -> list[dict]:
+    """Pure: extract recent 8-K events from a submissions ``filings.recent`` block.
+
+    Arrays are newest-first, so we keep order and stop at ``limit``. Item codes
+    map to human labels (9.01 'Exhibits' is dropped from the label list — it's
+    administrative, not a material event).
+    """
+    today = today or dt.date.today()
+    cutoff = today - dt.timedelta(days=lookback_days)
+    forms = recent.get("form", [])
+    n = len(forms)
+
+    def col(name):
+        c = recent.get(name, [])
+        return c if len(c) == n else c + [""] * (n - len(c))
+
+    fdates, rdates, accs, items, descs = (
+        col("filingDate"), col("reportDate"), col("accessionNumber"),
+        col("items"), col("primaryDocDescription"))
+
+    out: list[dict] = []
+    for i, form in enumerate(forms):
+        if form != "8-K":
+            continue
+        try:
+            d = dt.date.fromisoformat(fdates[i])
+        except (TypeError, ValueError):
+            continue
+        if d < cutoff:
+            continue
+        codes = [c.strip() for c in (items[i] or "").split(",") if c.strip()]
+        material = [{"code": c, "label": _item_label(c)} for c in codes if c != "9.01"]
+        out.append({
+            "filing_date": fdates[i],
+            "report_date": rdates[i] or fdates[i],
+            "items": material or [{"code": c, "label": _item_label(c)} for c in codes],
+            "accession": accs[i],
+            "description": descs[i] or "",
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
+def fetch_recent_8k(ticker: str, lookback_days: int | None = None,
+                    limit: int | None = None) -> list[dict]:
+    """Recent 8-K material events for a ticker (one submissions call, no doc fetch)."""
+    lookback_days = lookback_days or config.EDGAR_8K_LOOKBACK_DAYS
+    limit = limit or config.EDGAR_8K_MAX
+    cik = get_cik(ticker)
+    if not cik:
+        return []
+    try:
+        data = _get(_SUBMISSIONS_URL.format(cik=cik)).json()
+    except Exception:  # noqa: BLE001
+        return []
+    events = _parse_8k_filings(data.get("filings", {}).get("recent", {}), lookback_days, limit)
+    for e in events:
+        e["url"] = (f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/"
+                    f"{e['accession'].replace('-', '')}/")
+    return events
 
 
 def fetch_business_section(ticker: str) -> dict | None:

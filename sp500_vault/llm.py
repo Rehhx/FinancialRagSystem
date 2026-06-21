@@ -157,13 +157,18 @@ def score_sentiment(ticker: str, name: str, headlines: list[str]) -> dict:
 _RAG_SYSTEM = (
     "You answer questions about an S&P 500 (pilot: semiconductor + hardware) research "
     "vault. Each company has a note with quant metrics, an LLM sentiment score, "
-    "explicit supplier/customer/competitor relationships rendered as [[wikilinks]], and "
-    "a 'Recent News' section of dated headlines. "
+    "explicit supplier/customer/competitor relationships rendered as [[wikilinks]], a "
+    "'Recent News' section of dated headlines, and a 'Material Events' section of recent "
+    "8-K filings (earnings releases, executive changes, acquisitions, etc.). "
     "Use the relationship structure to reason about connected exposure (e.g. who is "
     "exposed to a given company's guidance), and cite recent headlines (with their "
     "dates) when the question is about news or catalysts. Ground every claim in the "
     "provided context and cite the ticker/section it came from. If the context is "
     "insufficient, say so.\n"
+    "CITE SOURCES: cite the [TICKER · Section] each claim came from. When a context "
+    "line carries a 'SOURCE: <url>' (news headlines, 8-K filings), cite it as a "
+    "markdown link — e.g. [Reuters](url) or [SEC 8-K](url) — so the reader can click "
+    "through to the original.\n"
     "IMPORTANT: when the context includes a pre-computed 'Graph · ...' summary (an "
     "aggregate value, ranking, count, or filtered set), report that value and that "
     "membership EXACTLY as given — do not recompute, re-sum, or drop/add members "
@@ -172,43 +177,88 @@ _RAG_SYSTEM = (
 )
 
 
-def _rag_user_prompt(question: str, contexts: list[str]) -> str:
+def _history_block(history: list[dict] | None) -> str:
+    if not history:
+        return ""
+    convo = "\n".join(f"{(h.get('role') or 'user').upper()}: {h.get('content', '')}"
+                      for h in history[-6:])
+    return f"Conversation so far:\n{convo}\n\n"
+
+
+def _rag_user_prompt(question: str, contexts: list[str], history: list[dict] | None = None) -> str:
     context_block = "\n\n---\n\n".join(contexts)
-    return f"Context from the vault:\n\n{context_block}\n\n=== QUESTION ===\n{question}"
+    return (f"{_history_block(history)}Context from the vault:\n\n{context_block}\n\n"
+            f"=== QUESTION ===\n{question}")
 
 
-def _rag_answer_claude(question: str, contexts: list[str]) -> str:
+def _rag_answer_claude(question: str, contexts: list[str], history=None) -> str:
     with anthropic_client().messages.stream(
         model=config.ANTHROPIC_MODEL,
         max_tokens=2000,
         system=_RAG_SYSTEM,
-        messages=[{"role": "user", "content": _rag_user_prompt(question, contexts)}],
+        messages=[{"role": "user", "content": _rag_user_prompt(question, contexts, history)}],
     ) as stream:
         message = stream.get_final_message()
     return _first_text(message)
 
 
-def _rag_answer_openai(question: str, contexts: list[str]) -> str:
+def _rag_answer_openai(question: str, contexts: list[str], history=None) -> str:
     resp = openai_client().chat.completions.create(
         model=config.OPENAI_ANSWER_MODEL,
         max_tokens=2000,
         messages=[
             {"role": "system", "content": _RAG_SYSTEM},
-            {"role": "user", "content": _rag_user_prompt(question, contexts)},
+            {"role": "user", "content": _rag_user_prompt(question, contexts, history)},
         ],
     )
     return (resp.choices[0].message.content or "").strip()
 
 
-def rag_answer(question: str, contexts: list[str]) -> str:
+# ── Conversational follow-ups ────────────────────────────────────────────────
+
+_CONDENSE_SYSTEM = (
+    "You rewrite a user's follow-up question into a standalone question for a search "
+    "engine. Resolve pronouns and ellipsis using the conversation (e.g. 'what about "
+    "its suppliers?' after a question about NVIDIA → 'Who are NVIDIA's suppliers?'). "
+    "Keep any named companies/tickers/metrics. Return ONLY the rewritten question."
+)
+
+
+def condense_question(history: list[dict] | None, question: str) -> str:
+    """Rewrite a follow-up into a standalone question using the conversation, so
+    retrieval works on the resolved intent (not the bare 'what about them?')."""
+    if not history:
+        return question
+    convo = "\n".join(f"{(h.get('role') or 'user').upper()}: {h.get('content', '')}"
+                      for h in history[-6:])
+    user = f"Conversation:\n{convo}\n\nFollow-up: {question}\n\nStandalone question:"
+    try:
+        if config.ANSWER_PROVIDER.lower() == "openai":
+            resp = openai_client().chat.completions.create(
+                model=config.OPENAI_ANSWER_MODEL, max_tokens=120,
+                messages=[{"role": "system", "content": _CONDENSE_SYSTEM},
+                          {"role": "user", "content": user}])
+            out = (resp.choices[0].message.content or "").strip()
+        else:
+            msg = anthropic_client().messages.create(
+                model=config.ANTHROPIC_MODEL, max_tokens=150, system=_CONDENSE_SYSTEM,
+                messages=[{"role": "user", "content": user}])
+            out = _first_text(msg).strip()
+    except Exception:  # noqa: BLE001 - fall back to the raw question
+        return question
+    return out or question
+
+
+def rag_answer(question: str, contexts: list[str], history: list[dict] | None = None) -> str:
     """Answer a natural-language question grounded in retrieved note chunks.
 
     Provider is configurable (``ANSWER_PROVIDER``): the answer LLM only narrates
     pre-computed/retrieved context, so Claude or OpenAI both work — choose by cost.
+    ``history`` (prior turns) makes follow-up answers conversational.
     """
     if config.ANSWER_PROVIDER.lower() == "openai":
-        return _rag_answer_openai(question, contexts)
-    return _rag_answer_claude(question, contexts)
+        return _rag_answer_openai(question, contexts, history)
+    return _rag_answer_claude(question, contexts, history)
 
 
 # ── Answer faithfulness judge (eval) ─────────────────────────────────────────

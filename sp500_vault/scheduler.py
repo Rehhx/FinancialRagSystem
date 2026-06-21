@@ -20,7 +20,7 @@ import json
 import sys
 import time
 
-from . import (backtest, config, graph_export, quant, relationships, sentiment,
+from . import (backtest, config, filings, graph_export, quant, relationships, sentiment,
                signals, vault_render, rag)
 from .universe import TICKERS
 
@@ -35,6 +35,7 @@ _STATE = config.DATA_DIR / "scheduler_state.json"
 # Refresh cadence per layer, in hours.
 CADENCE_HOURS = {
     "sentiment": 24,          # daily
+    "filings": 24,            # daily (8-K events are sporadic but time-sensitive)
     "signals": 24,            # daily (price-based)
     "backtest": 24,           # daily (price-based)
     "quant": 24 * 90,         # ~quarterly
@@ -45,6 +46,7 @@ _RUNNERS = {
     "quant": quant.run,
     "relationships": relationships.run,
     "sentiment": sentiment.run,
+    "filings": filings.run,
     "signals": signals.run,
     "backtest": backtest.run,
 }
@@ -96,7 +98,7 @@ def tick(force: list[str] | None = None) -> bool:
     force = set(force or [])
     ran = False
 
-    for layer in ("quant", "relationships", "sentiment", "signals", "backtest"):  # data layers first
+    for layer in ("quant", "relationships", "sentiment", "filings", "signals", "backtest"):  # data layers first
         if layer in force or _due(layer, state, now):
             print(f"[sched] running due layer: {layer}")
             _RUNNERS[layer](list(TICKERS), force=(layer in force))

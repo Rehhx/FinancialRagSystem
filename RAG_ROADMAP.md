@@ -215,6 +215,10 @@ add a reranker · keep OpenAI embeddings · keep Alpaca/Finnhub/yfinance.
 | + cross-encoder rerank (MiniLM, CPU) | 0.62 | 0.62 | **Rejected** — generic CE hurts this corpus |
 | + **LLM rerank (Claude listwise)** | **0.76–0.83** | 0.86 | **Shipped** as the default (`RERANKER=llm`) |
 | + **graph-metric router** (`graph_qa`) | **0.88** | **0.93** | **Shipped** — closed the ranking-question failure class |
+| + BM25 hybrid (RRF / union) | 0.73 / 0.78 | — | **Rejected** — BM25 noise displaces dense hits; eval said no |
+| + `text-embedding-3-large` | 0.79 | 0.93 | **Rejected** — no lift over `-small` on this short-chunk corpus |
+| reranker on OpenAI (Claude credits out) | 0.78 | 0.78 | interim — `_rerank_llm` provider-aware; still beat vector order (0.72) |
+| **reranker on Claude** (`RERANK_PROVIDER=claude`) | **0.86–0.90** | 0.86 | **Shipped** — best of session; decoupled from `ANSWER_PROVIDER` (rerank on Claude, narrate on OpenAI) |
 
 The eval harness paid for itself immediately: it **prevented shipping the CPU
 cross-encoder** (which degraded quality) and **justified the LLM reranker** with
@@ -223,6 +227,21 @@ numbers. The reranker is pluggable (`config.RERANKER` = `llm` | `cross_encoder` 
 (`bge-reranker-v2-m3` / `bge-reranker-large`) or a **hosted reranker API** (Cohere
 Rerank 3 / Voyage rerank-2) — faster and cheaper per query than an LLM rerank at
 matching quality. Gate the switch on `pipeline eval`.
+
+**Recall investigation + conversational RAG + citations (this cut).** Asked to
+"improve recall," the eval did its job again — **two plausible upgrades were
+rejected**: BM25 hybrid (RRF *and* recall-safe union both *hurt* — keyword noise
+displaces strong dense hits the reranker then over-trusts) and
+`text-embedding-3-large` (no lift over `-small`). The real recall win was
+**operational**: Claude credits ran out and the LLM reranker was silently falling
+back to vector order (0.72); making `_rerank_llm` follow `ANSWER_PROVIDER` (so it
+reranks on OpenAI) restored it to **0.78**. Also shipped: **conversational
+follow-ups** (`/query` takes `history`; a condense step rewrites *"what about its
+suppliers?"* → standalone for retrieval, and the answer sees prior turns) and
+**inline source citations** (news/8-K URLs flow into context as `SOURCE: <url>`,
+the prompt cites them as markdown links, and the web chat renders them clickable).
+BM25/RRF kept as a toggle (`HYBRID_RETRIEVAL`, off) to re-evaluate as the corpus
+grows and gets longer chunks (where sparse retrieval tends to help more).
 
 **Graph-metric routing (shipped).** The eval surfaced a structural gap: *ranking*
 questions ("most systemically central?", "most bullish memory makers?") scored
@@ -300,6 +319,38 @@ each company's recent headlines are now **embedded into the vector store** as a
 per-ticker `News` chunk, so the RAG answers news-cycle questions with real dated
 headlines instead of only the one-line sentiment summary — at ~50 small embeddings
 per refresh (pennies), incremental so it only re-embeds when headlines change. RSS
-parsing, the interleave, and the digest are pure functions with unit tests. Next:
-8-K / material-event ingestion from EDGAR, and a rolling news *archive* (beyond the
-14-day window) to support a true sentiment lead-lag backtest.
+parsing, the interleave, and the digest are pure functions with unit tests.
+
+**8-K material-event ingestion (shipped — free).** A new `filings` layer pulls each
+company's recent **8-K** filings from SEC EDGAR (one cached submissions request per
+ticker — no document fetch) and maps the **item codes to the material-event
+taxonomy** (2.02 earnings, 5.02 executive change, 1.01 material agreement, 2.01
+acquisition, 2.06 impairment, …). Events are stored per ticker, embedded as a
+per-ticker `Material Events` RAG chunk, surfaced in `pipeline stats`, and refreshed
+daily by the scheduler. The submissions parser and digest are pure, unit-tested
+functions. This turns the vault into a **catalyst tracker** — "what material events
+has NVDA filed, and did any involve executive changes?" — for $0.
+
+**Real-time 8-K reaction (shipped — free).** `edgar_live.py` polls SEC EDGAR's
+**`getcurrent`** feed (continuously updated; no key, no quota) every ~2 minutes,
+matches entry CIKs against the universe, and on a new universe 8-K refreshes that
+ticker's filings and **incrementally re-embeds its `Material Events` chunk** — so
+the vault reacts **within minutes of the filing hitting the wire**, off the
+*primary source*, ahead of the financial press. The feed carries item codes
+inline (`Item 5.02: …`), so the event type is known from the poll without fetching
+the document; a persisted `seen` set makes restarts idempotent. Parsing/labeling
+are pure, unit-tested functions; run via `scripts\edgar_live_watch.bat`
+(always-on) or `edgar_live tick` on a Task Scheduler trigger. This is ~90% of the
+"be first on the news" edge for $0 — true sub-second push needs a paid websocket.
+**Rolling archive + event-driven backtest (shipped — free).** `archive.py` is an
+append-only store of every 8-K and headline, written automatically by the daily
+layers *and* the real-time poller, and back-fillable from a year of EDGAR history
+(seeded with **644 filings**). `event_backtest.py` runs a true **event study** over
+it: market-adjusted forward returns (`stock − SPY`) at 1/3/5 days, aggregated by
+8-K item type with hit-rate and t-stat. First result on the seeded year:
+**Reg-FD disclosures (7.01) carry ~+1.6% 5-day abnormal return at t≈2.1**, while
+scheduled earnings (2.02) are efficient — the unscheduled/discretionary
+disclosures hold the signal. The archive grows daily, so N and significance
+improve over time. Forward-return math and dedup are pure, unit-tested functions.
+Next: fetch 8-K body text for a one-line LLM summary of the highest-signal items
+(1.01 / 2.01 / 5.02), and a sentiment lead-lag over the accumulating news archive.

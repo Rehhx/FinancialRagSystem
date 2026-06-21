@@ -3,8 +3,8 @@
   "aggregate": {
     "k": 8,
     "n": 15,
-    "recall_at_k": 0.844,
-    "mrr": 1.0,
+    "recall_at_k": 0.861,
+    "mrr": 0.856,
     "hit_rate": 1.0
   },
   "questions": [
@@ -16,8 +16,10 @@
       ],
       "retrieved": [
         "MU",
-        "WDC",
-        "NVDA"
+        "AMZN",
+        "NVDA",
+        "GOOGL",
+        "TSLA"
       ],
       "recall": 1.0,
       "rr": 1.0,
@@ -50,12 +52,13 @@
         "AVGO"
       ],
       "retrieved": [
-        "INTC",
         "AMD",
+        "INTC",
         "QCOM",
+        "AVGO",
         "ADI",
-        "TXN",
-        "AVGO"
+        "GOOGL",
+        "TSLA"
       ],
       "recall": 0.75,
       "rr": 1.0,
@@ -70,15 +73,16 @@
         "GOOGL"
       ],
       "retrieved": [
-        "GOOGL",
         "ORCL",
-        "HPE",
         "MSFT",
+        "HPE",
         "AMZN",
-        "NVDA"
+        "GOOGL",
+        "DELL",
+        "SMCI"
       ],
-      "recall": 1.0,
-      "rr": 1.0,
+      "recall": 0.75,
+      "rr": 0.5,
       "hit": true
     },
     {
@@ -89,12 +93,12 @@
         "NXPI"
       ],
       "retrieved": [
+        "TSLA",
+        "ADI",
         "ON",
-        "NXPI",
-        "TXN",
-        "MCHP"
+        "NXPI"
       ],
-      "recall": 0.667,
+      "recall": 1.0,
       "rr": 1.0,
       "hit": true
     },
@@ -107,12 +111,14 @@
         "NVDA"
       ],
       "retrieved": [
-        "DELL",
+        "SMCI",
+        "HPQ",
         "AMD",
-        "INTC"
+        "INTC",
+        "DELL"
       ],
       "recall": 0.75,
-      "rr": 1.0,
+      "rr": 0.333,
       "hit": true
     },
     {
@@ -124,13 +130,14 @@
         "AVGO"
       ],
       "retrieved": [
+        "T",
         "CSCO",
         "QCOM",
-        "ANET",
-        "QRVO"
+        "AVGO",
+        "VZ"
       ],
-      "recall": 0.5,
-      "rr": 1.0,
+      "recall": 1.0,
+      "rr": 0.5,
       "hit": true
     },
     {
@@ -140,13 +147,13 @@
         "AVGO"
       ],
       "retrieved": [
-        "ANET",
         "CSCO",
-        "HPE",
-        "AVGO"
+        "AVGO",
+        "ANET",
+        "NVDA"
       ],
       "recall": 1.0,
-      "rr": 1.0,
+      "rr": 0.5,
       "hit": true
     },
     {
@@ -162,9 +169,10 @@
         "TSLA",
         "APTV",
         "BWA",
-        "NXPI"
+        "NXPI",
+        "F"
       ],
-      "recall": 0.75,
+      "recall": 1.0,
       "rr": 1.0,
       "hit": true
     },
@@ -179,11 +187,10 @@
       "retrieved": [
         "MSFT",
         "STX",
-        "AMD",
         "HPE",
-        "DELL"
+        "ORCL"
       ],
-      "recall": 0.5,
+      "recall": 0.25,
       "rr": 1.0,
       "hit": true
     },
@@ -214,8 +221,8 @@
       "retrieved": [
         "CSCO",
         "ANET",
-        "AAPL",
-        "AVGO"
+        "AVGO",
+        "AAPL"
       ],
       "recall": 1.0,
       "rr": 1.0,
@@ -230,10 +237,13 @@
       ],
       "retrieved": [
         "F",
-        "ON",
-        "QCOM"
+        "GM",
+        "APTV",
+        "BWA",
+        "TSLA",
+        "ON"
       ],
-      "recall": 1.0,
+      "recall": 0.667,
       "rr": 1.0,
       "hit": true
     },

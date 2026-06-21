@@ -21,13 +21,14 @@ SENTIMENT_DIR = DATA_DIR / "sentiment"
 EDGAR_DIR = DATA_DIR / "edgar"
 CHROMA_DIR = DATA_DIR / "chroma"
 SIGNALS_DIR = DATA_DIR / "signals"
+FILINGS_DIR = DATA_DIR / "filings"
 VAULT_DIR = BASE_DIR / "vault"
 
 RELATIONSHIPS_DB = DATA_DIR / "relationships.db"
 MANUAL_OVERRIDES_CSV = BASE_DIR / "relationships_manual_overrides.csv"
 CORRELATIONS_FILE = SIGNALS_DIR / "correlations.json"
 
-for _d in (DATA_DIR, QUANT_DIR, SENTIMENT_DIR, EDGAR_DIR, SIGNALS_DIR, VAULT_DIR):
+for _d in (DATA_DIR, QUANT_DIR, SENTIMENT_DIR, EDGAR_DIR, SIGNALS_DIR, FILINGS_DIR, VAULT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # ── Secrets ──────────────────────────────────────────────────────────────────
@@ -61,11 +62,21 @@ OPENAI_ANSWER_MODEL = os.getenv("OPENAI_ANSWER_MODEL", "gpt-4o")
 # "fmp" (force FMP, fall back to yfinance on failure), or "yfinance".
 FUNDAMENTALS_SOURCE = os.getenv("FUNDAMENTALS_SOURCE", "auto")
 
-# RAG reranker: "llm" (Claude listwise — best on this domain per eval), "cross_encoder"
-# (local cross-encoder; needs a finance-tuned model to help — generic MiniLM hurt),
-# or "none". Eval (recall@8): none 0.67 · cross_encoder/MiniLM 0.62 · llm 0.83.
+# RAG reranker: "llm" (listwise), "cross_encoder" (local; generic MiniLM hurt —
+# needs a finance-tuned model), or "none". Eval (recall@8): none 0.72 ·
+# cross_encoder/MiniLM 0.62 · llm-openai 0.78 · llm-claude 0.83 (Claude reranks
+# sharper, MRR ~1.0). The "llm" backend's model is set by RERANK_PROVIDER below —
+# independent of ANSWER_PROVIDER, so you can rerank on Claude and narrate on OpenAI.
 RERANKER = os.getenv("RERANKER", "llm")
+RERANK_PROVIDER = os.getenv("RERANK_PROVIDER", "claude")  # "claude" | "openai"
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+# Hybrid retrieval: fuse a BM25 keyword ranking with the dense vectors to lift
+# recall on exact-token matches. Eval verdict on this corpus: it *hurts* (recall@8
+# 0.83 -> 0.73 reorder / 0.78 union) — dense + graph-expand + LLM-rerank already
+# covers the relationship/semantic questions, and BM25 only injects noise the
+# reranker over-trusts. Kept as a toggle (off) for re-evaluation as the corpus grows.
+HYBRID_RETRIEVAL = os.getenv("HYBRID_RETRIEVAL", "false").lower() in ("1", "true", "yes")
 
 # SEC requires a descriptive User-Agent with contact info on every request.
 SEC_USER_AGENT = os.getenv(
@@ -85,6 +96,10 @@ NEWS_PER_PROVIDER = int(os.getenv("NEWS_PER_PROVIDER", "10"))
 
 # Cap the 10-K "Business" section text we send to Claude (chars) to bound cost.
 EDGAR_BUSINESS_MAX_CHARS = int(os.getenv("EDGAR_BUSINESS_MAX_CHARS", "45000"))
+
+# 8-K material-event ingestion: how far back to look and how many to keep per ticker.
+EDGAR_8K_LOOKBACK_DAYS = int(os.getenv("EDGAR_8K_LOOKBACK_DAYS", "90"))
+EDGAR_8K_MAX = int(os.getenv("EDGAR_8K_MAX", "8"))
 
 
 def require(*keys: str) -> None:

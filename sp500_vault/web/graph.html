@@ -145,8 +145,16 @@
   #answerCard.show { display: flex; }
   #answerCard .hd { display: flex; align-items: center; gap: 8px; padding: 11px 14px;
     border-bottom: 1px solid var(--line); font-weight: 650; }
-  #answerCard .hd .x { margin-left: auto; cursor: pointer; color: var(--muted); border: 0; background: 0; font-size: 16px; }
+  #answerCard .hd .x { cursor: pointer; color: var(--muted); border: 0; background: 0; font-size: 16px; }
+  #answerCard .hd .newchat { margin-left: auto; cursor: pointer; color: var(--muted); border: 1px solid var(--line2);
+    background: 0; font-size: 11px; border-radius: 6px; padding: 2px 8px; }
+  #answerCard .hd .newchat:hover { color: var(--fg); }
   #answerCard .bd { padding: 12px 14px; overflow-y: auto; font-size: 13px; }
+  #answerCard .turn { margin-bottom: 12px; }
+  #answerCard .turn.user { font-weight: 650; color: var(--accent); border-left: 2px solid var(--line2); padding-left: 8px; }
+  #answerCard .turn.bot { border-top: 1px solid var(--line); padding-top: 8px; }
+  #answerCard .turn.bot .src { padding: 6px 0 0; border: 0; display: flex; flex-wrap: wrap; }
+  #answerCard a[href] { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
   #answerCard .src { padding: 8px 14px 12px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; }
   .md h4 { font-size: 14px; margin: 12px 0 4px; } .md h5 { font-size: 12.5px; color: var(--muted); margin: 10px 0 3px; text-transform: uppercase; letter-spacing: .05em; }
   .md p { margin: 7px 0; } .md ul { margin: 6px 0; padding-left: 20px; } .md li { margin: 3px 0; }
@@ -280,7 +288,9 @@
     </div>
     <div id="tooltip"></div>
     <div id="answerCard">
-      <div class="hd">💬 Vault answer <button class="x" id="closeAns">✕</button></div>
+      <div class="hd">💬 Vault chat
+        <button class="newchat" id="newChat" title="Start a new conversation">↺ New chat</button>
+        <button class="x" id="closeAns">✕</button></div>
       <div class="bd md" id="answerBody"></div>
       <div class="src" id="answerSrc"></div>
     </div>
@@ -706,6 +716,7 @@ function mdToHtml(src) {
   const lines = escapeHtml(src).split("\n");
   let html = "", inList = false;
   const inline = s => s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
     .replace(/\[\[([A-Z]{1,6})\]\]/g, '<a class="tick" data-id="$1">$1</a>')
     .replace(/\[([A-Z]{1,6}) ·([^\]]+)\]/g, '<a class="tick" data-id="$1">$1</a> ·$2');
   const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
@@ -720,34 +731,47 @@ function mdToHtml(src) {
   return html;
 }
 
-// Ask the vault
+// Ask the vault — conversational: keeps history so follow-ups ("what about its
+// suppliers?") resolve against the prior turns.
 const askBtn = document.getElementById("ask");
+let chatHistory = [];   // [{role, content}]
+function wireLinks(el) {
+  el.querySelectorAll("a.tick").forEach(a => a.onclick = () => { const n = byId[a.dataset.id]; if (n) { selectNode(n); focusNode(n); } });
+  el.querySelectorAll(".chip").forEach(c => c.onclick = () => { const n = byId[c.dataset.id]; if (n) { selectNode(n); focusNode(n); } });
+}
+function appendTurn(role, html) {
+  const body = document.getElementById("answerBody");
+  const div = document.createElement("div"); div.className = "turn " + role; div.innerHTML = html;
+  body.appendChild(div); body.scrollTop = body.scrollHeight; return div;
+}
 async function ask() {
-  const question = document.getElementById("q").value.trim();
+  const qEl = document.getElementById("q"); const question = qEl.value.trim();
   if (!question) return;
   askBtn.disabled = true; askBtn.textContent = "Thinking…";
-  const card = document.getElementById("answerCard"); card.classList.add("show");
-  document.getElementById("answerBody").innerHTML = '<div class="muted">Retrieving and reasoning over the vault…</div>';
-  document.getElementById("answerSrc").innerHTML = "";
+  document.getElementById("answerCard").classList.add("show");
+  appendTurn("user", escapeHtml(question)); qEl.value = "";
+  const turn = appendTurn("bot", '<div class="muted">Retrieving and reasoning over the vault…</div>');
   try {
-    const r = await fetch("/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, k: 8 }) });
+    const r = await fetch("/query", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, k: 8, history: chatHistory }) });
     const data = await r.json();
-    const body = document.getElementById("answerBody");
-    body.innerHTML = mdToHtml(data.answer);
-    body.querySelectorAll("a.tick").forEach(a => a.onclick = () => { const n = byId[a.dataset.id]; if (n) { selectNode(n); focusNode(n); } });
-    const seen = new Set(), src = document.getElementById("answerSrc");
-    (data.sources || []).forEach(s => {
-      if (!s.ticker || seen.has(s.ticker)) return; seen.add(s.ticker);
-      const c = document.createElement("span"); c.className = "chip"; c.textContent = s.ticker;
-      c.onclick = () => { const n = byId[s.ticker]; if (n) { selectNode(n); focusNode(n); } };
-      src.appendChild(c);
-    });
-  } catch (err) { document.getElementById("answerBody").innerHTML = '<div class="muted">Error: ' + err + "</div>"; }
+    let html = "";
+    if (data.resolved_question) html += '<div class="muted" style="margin-bottom:5px">↳ searched: ' + escapeHtml(data.resolved_question) + '</div>';
+    html += mdToHtml(data.answer);
+    const seen = new Set(); let chips = "";
+    (data.sources || []).forEach(s => { if (!s.ticker || seen.has(s.ticker)) return; seen.add(s.ticker);
+      chips += '<span class="chip" data-id="' + s.ticker + '">' + s.ticker + '</span>'; });
+    if (chips) html += '<div class="src">' + chips + '</div>';
+    turn.innerHTML = html; wireLinks(turn);
+    chatHistory.push({ role: "user", content: question }, { role: "assistant", content: data.answer });
+    if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);   // keep last ~6 turns
+  } catch (err) { turn.innerHTML = '<div class="muted">Error: ' + err + "</div>"; }
   askBtn.disabled = false; askBtn.textContent = "Ask the vault";
 }
 askBtn.addEventListener("click", ask);
 document.getElementById("q").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ask(); });
 document.getElementById("closeAns").addEventListener("click", () => document.getElementById("answerCard").classList.remove("show"));
+document.getElementById("newChat").addEventListener("click", () => { chatHistory = []; document.getElementById("answerBody").innerHTML = ""; document.getElementById("q").focus(); });
 
 // Backtest panel — equity curve + IC stats
 let backtestData = null;

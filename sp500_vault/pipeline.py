@@ -17,8 +17,8 @@ import json
 import sqlite3
 import sys
 
-from . import (backtest, config, evaluation, graph_export, quant, relationships,
-               sentiment, signals, vault_render, rag)
+from . import (archive, backtest, config, evaluation, event_backtest, filings, graph_export,
+               quant, relationships, sentiment, signals, vault_render, rag)
 from .universe import SECTORS, TICKERS, tickers_for_group
 
 # Windows consoles default to cp1252 and choke on em-dashes/arrows in model output.
@@ -76,6 +76,22 @@ def _stats() -> None:
     latest = max([d for d in dates if d], default="—")
     print(f"  sentiment       {len(sj)}/{len(TICKERS)} scored (latest {latest})")
 
+    fj = list(config.FILINGS_DIR.glob("*.json"))
+    if fj:
+        n_events = 0
+        for p in fj:
+            try:
+                n_events += json.loads(p.read_text(encoding="utf-8")).get("event_count", 0)
+            except Exception:  # noqa: BLE001
+                pass
+        print(f"  filings (8-K)   {len(fj)}/{len(TICKERS)} tickers, {n_events} material events")
+
+    af, an = config.DATA_DIR / "archive" / "filings.csv", config.DATA_DIR / "archive" / "news.csv"
+    if af.exists() or an.exists():
+        nf = max(0, sum(1 for _ in af.open(encoding="utf-8")) - 1) if af.exists() else 0
+        nn = max(0, sum(1 for _ in an.open(encoding="utf-8")) - 1) if an.exists() else 0
+        print(f"  archive         {nf} filings, {nn} headlines (append-only, for event studies)")
+
     if config.RELATIONSHIPS_DB.exists():
         c = sqlite3.connect(config.RELATIONSHIPS_DB)
         total = c.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
@@ -118,9 +134,10 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="sp500_vault", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    no_selection = {"index", "export", "dashboard", "stats"}
-    for name in ("quant", "relationships", "sentiment", "signals", "backtest", "vault",
-                 "index", "dashboard", "export", "stats", "all"):
+    no_selection = {"index", "export", "dashboard", "stats", "eventbacktest"}
+    for name in ("quant", "relationships", "sentiment", "filings", "archive", "signals",
+                 "backtest", "eventbacktest", "vault", "index", "dashboard", "export",
+                 "stats", "all"):
         sp = sub.add_parser(name, help=f"Run the {name} layer")
         if name not in no_selection:
             _add_selection(sp)
@@ -159,6 +176,9 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "eval":
         evaluation.run(k=args.k, judge=args.judge)
         return
+    if args.cmd == "eventbacktest":
+        event_backtest.run()
+        return
 
     tickers = _select(args)
     force = getattr(args, "force", False)
@@ -168,6 +188,10 @@ def main(argv: list[str] | None = None) -> None:
         relationships.run(tickers, force=force)
     if args.cmd in ("sentiment", "all"):
         sentiment.run(tickers, force=force)
+    if args.cmd in ("filings", "all"):
+        filings.run(tickers, force=force)
+    if args.cmd == "archive":
+        archive.run(tickers, force=force)
     if args.cmd in ("signals", "all"):
         signals.run(tickers, force=force)
     if args.cmd in ("backtest", "all"):

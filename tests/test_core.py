@@ -166,6 +166,153 @@ def test_news_digest():
     assert "(Barrons)" in d and "rally" in d
 
 
+# ── 8-K material events (EDGAR submissions parsing) ──────────────────────────
+
+_RECENT = {
+    "form": ["8-K", "10-Q", "8-K", "8-K"],
+    "filingDate": ["2026-06-18", "2026-06-01", "2026-05-20", "2020-01-01"],
+    "reportDate": ["2026-06-18", "", "2026-05-19", ""],
+    "accessionNumber": ["0001-26-1", "x", "0001-26-3", "old"],
+    "items": ["8.01,9.01", "", "2.02,9.01", "5.02"],
+    "primaryDocDescription": ["8-K", "10-Q", "8-K", "8-K"],
+}
+
+
+def test_item_label():
+    from sp500_vault.data_sources import edgar
+    assert "earnings" in edgar._item_label("2.02").lower()
+    assert edgar._item_label("5.02") == "Departure / Appointment of Directors or Officers"
+    assert edgar._item_label("9.99") == "Item 9.99"        # unknown -> graceful fallback
+
+
+def test_parse_8k_filings():
+    import datetime as _dt
+    from sp500_vault.data_sources import edgar
+    today = _dt.date(2026, 6, 20)
+    events = edgar._parse_8k_filings(_RECENT, lookback_days=90, limit=8, today=today)
+    assert len(events) == 2                                  # 10-Q skipped, 2020 8-K out of window
+    assert events[0]["filing_date"] == "2026-06-18"
+    # 9.01 (exhibits) dropped as administrative; 8.01 kept
+    assert [it["code"] for it in events[0]["items"]] == ["8.01"]
+    assert events[1]["items"][0]["code"] == "2.02"
+
+
+def test_parse_8k_filings_limit():
+    import datetime as _dt
+    from sp500_vault.data_sources import edgar
+    events = edgar._parse_8k_filings(_RECENT, lookback_days=90, limit=1, today=_dt.date(2026, 6, 20))
+    assert len(events) == 1
+
+
+_ATOM = """<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<entry>
+<title>8-K - NVIDIA CORP (0001045810) (Filer)</title>
+<summary type="html"> &lt;b&gt;AccNo:&lt;/b&gt; 0001045810-26-000099 &lt;br&gt;Item 2.02: Results &lt;br&gt;Item 9.01: Exhibits</summary>
+<updated>2026-06-21T16:31:00-04:00</updated>
+<id>urn:tag:sec.gov,2008:accession-number=0001045810-26-000099</id>
+</entry>
+<entry>
+<title>8-K - SOME RANDOM CO (0000999999) (Filer)</title>
+<summary type="html">Item 8.01: Other Events</summary>
+<updated>2026-06-21T16:30:00-04:00</updated>
+<id>urn:tag:sec.gov,2008:accession-number=0000999999-26-000001</id>
+</entry>
+</feed>"""
+
+
+def test_edgar_live_parse_entries():
+    from sp500_vault import edgar_live
+    entries = edgar_live._parse_entries(_ATOM)
+    assert len(entries) == 2
+    assert entries[0]["cik"] == "1045810"                  # leading zeros stripped
+    assert entries[0]["accession"] == "0001045810-26-000099"
+    assert entries[1]["cik"] == "999999"
+
+
+def test_edgar_live_summary_items_drops_exhibits():
+    from sp500_vault import edgar_live
+    label = edgar_live._summary_items("Item 2.02: Results <br>Item 9.01: Exhibits")
+    assert "earnings" in label.lower() and "9.01" not in label   # 9.01 dropped as administrative
+
+
+# ── archive + event-driven backtest ──────────────────────────────────────────
+
+def test_event_forward_return():
+    import pandas as pd
+    from sp500_vault import event_backtest as eb
+    idx = pd.date_range("2026-06-01", periods=10, freq="D")
+    close = pd.Series([100.0, 101, 102, 103, 104, 105, 106, 107, 108, 109], index=idx)
+    # event on 2026-06-02 (pos 1, p0=101); +3 trading days -> pos 4, p1=104
+    assert abs(eb._forward_return(close, "2026-06-02", 3) - (104 / 101 - 1)) < 1e-9
+    # not enough room past the end -> None
+    assert eb._forward_return(close, "2026-06-09", 3) is None
+
+
+def test_archive_news_key_dedup():
+    from sp500_vault import archive
+    a = {"url": "https://x.com/a?utm=1", "headline": "NVDA up"}
+    b = {"url": "https://x.com/a/", "headline": "totally different"}
+    assert archive._news_key(a) == archive._news_key(b)        # query + trailing slash stripped
+    assert archive._news_key({"headline": "Same H"}) == archive._news_key({"headline": "same h"})
+
+
+def test_archive_append_filings_dedups(tmp_path, monkeypatch):
+    from sp500_vault import archive
+    monkeypatch.setattr(archive, "ARCHIVE_DIR", tmp_path)
+    monkeypatch.setattr(archive, "_FILINGS", tmp_path / "filings.csv")
+    ev = [{"accession": "A-1", "filing_date": "2026-06-01", "items": [{"code": "2.02"}]}]
+    assert archive.append_filings("NVDA", ev) == 1
+    assert archive.append_filings("NVDA", ev) == 0             # same accession -> deduped
+    assert archive.append_filings("NVDA", [{"accession": "A-2", "filing_date": "2026-06-02",
+                                            "items": [{"code": "5.02"}]}]) == 1
+    df = archive.load_filings()
+    assert len(df) == 2 and set(df["accession"]) == {"A-1", "A-2"}
+
+
+def test_filings_digest():
+    events = [{"filing_date": "2026-06-18", "url": "http://sec/1",
+               "items": [{"code": "2.02", "label": "Results of Operations (earnings)"}]},
+              {"filing_date": "2026-05-08", "items": [{"code": "5.02", "label": "Departure of Officers"}]}]
+    d = rag._filings_digest("NVDA", events)
+    assert "Material Events" in d and "2026-06-18" in d
+    assert "earnings" in d and "Departure" in d
+    assert "SOURCE: http://sec/1" in d                  # citation URL embedded
+
+
+def test_news_digest_includes_source_url():
+    arts = [{"datetime": "2026-06-20T10:00:00", "headline": "NVDA up", "source": "Barrons",
+             "url": "http://news/1", "summary": "rally"}]
+    assert "SOURCE: http://news/1" in rag._news_digest("NVDA", arts)
+
+
+# ── hybrid retrieval primitives (BM25 + RRF) ─────────────────────────────────
+
+def test_bm25_ranks_keyword_match():
+    corpus = [rag._tok(t) for t in [
+        "NVIDIA supplies GPUs and AI accelerators",
+        "Apple designs iPhones and Macs",
+        "Micron makes memory chips used by NVIDIA"]]
+    bm = rag._BM25(corpus)
+    assert bm.top(rag._tok("memory chips"), 1)[0] == 2     # only doc 2 has 'memory chips'
+
+
+def test_rrf_fuse_blends_and_dedupes():
+    from langchain_core.documents import Document
+    d1 = Document(page_content="a", metadata={"ticker": "A", "section": "x"})
+    d2 = Document(page_content="b", metadata={"ticker": "B", "section": "x"})
+    d3 = Document(page_content="c", metadata={"ticker": "C", "section": "x"})
+    fused = rag._rrf_fuse([d1, d2], [d3, d1])              # d1 in both lists -> ranks first
+    assert fused[0].metadata["ticker"] == "A"
+    assert {d.metadata["ticker"] for d in fused} == {"A", "B", "C"}
+
+
+def test_condense_no_history_is_identity():
+    from sp500_vault import llm
+    assert llm.condense_question(None, "Who supplies NVIDIA?") == "Who supplies NVIDIA?"
+    assert llm.condense_question([], "x") == "x"           # empty history -> no LLM call
+
+
 # ── graph math ───────────────────────────────────────────────────────────────
 
 def test_clean_sanitizes_nan():

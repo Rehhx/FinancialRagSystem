@@ -38,10 +38,13 @@ Ingestion ──► Processing ──► Vault (markdown + [[links]]) ──► 
 | Quant | `quant.py` (`data_sources/market.py` — FMP → yfinance) | `data/quant/<T>.json` |
 | Relationships | `relationships.py` (`data_sources/edgar.py`, `news.py`) | `data/relationships.db` |
 | Sentiment | `sentiment.py` (`data_sources/news.py` — Google News + Yahoo RSS + Finnhub + Marketaux + NewsAPI + Alpha Vantage) | `data/sentiment/<T>.json` |
+| Filings (8-K) | `filings.py` (`data_sources/edgar.py` — SEC 8-K material events) | `data/filings/<T>.json` |
+| Event archive | `archive.py` (append-only 8-K + news log) | `data/archive/{filings,news}.csv` |
+| Event backtest | `event_backtest.py` (event study by 8-K item type) | `data/signals/event_backtest.json`, `vault/_EventBacktest.md` |
 | Signals | `signals.py` (Alpaca IEX → yfinance) | `data/signals/correlations.json`, `vault/_Signals.md` |
 | Backtest | `backtest.py` (lead-lag) | `data/signals/backtest.json`, `vault/_Backtest.md` |
 | Vault render | `vault_render.py` | `vault/<T>.md`, `<T>_news_log.md`, `_Dashboard.md` |
-| RAG index | `rag.py` (LangChain + OpenAI embeddings + Chroma; note chunks + per-ticker news) | `data/chroma/` (incremental) |
+| RAG index | `rag.py` (LangChain + OpenAI embeddings + Chroma; note chunks + per-ticker news + 8-K events) | `data/chroma/` (incremental) |
 | Graph export | `graph_export.py` | `data/graph/graph.json` (for future web viz) |
 | Scheduler | `scheduler.py` | per-layer cadence refresh (Phase 7) |
 | Query API | `api.py` | FastAPI `/query` |
@@ -88,8 +91,11 @@ python -m sp500_vault.pipeline quant
 python -m sp500_vault.pipeline quant --force   # re-fetch all fundamentals (e.g. after adding FMP_API_KEY)
 python -m sp500_vault.pipeline relationships --sector cloud_software   # one cluster at a time
 python -m sp500_vault.pipeline sentiment
+python -m sp500_vault.pipeline filings        # SEC 8-K material events (earnings, exec changes, M&A)
 python -m sp500_vault.pipeline signals        # price co-movement validation + edge weights
 python -m sp500_vault.pipeline backtest       # supplier-momentum -> customer lead-lag
+python -m sp500_vault.pipeline archive        # accumulate 8-Ks/news into the append-only event archive
+python -m sp500_vault.pipeline eventbacktest  # event study: forward returns after 8-Ks, by item type
 python -m sp500_vault.pipeline vault          # also writes _Dashboard.md
 python -m sp500_vault.pipeline index          # incremental — only re-embeds changed chunks
 python -m sp500_vault.pipeline index --force  # full rebuild (re-embed everything)
@@ -111,6 +117,11 @@ python -m sp500_vault.pipeline query "Cheapest names by P/E" --sentiment Bullish
 python -m sp500_vault.scheduler status        # what's due
 python -m sp500_vault.scheduler tick          # run due layers, then re-render/index/export
 python -m sp500_vault.scheduler run --interval 3600   # daemon
+
+# Real-time 8-K poller — react to material events minutes after they hit the wire (free)
+python -m sp500_vault.edgar_live status               # CIK mapping + what the feed matches now
+python -m sp500_vault.edgar_live tick                 # poll once and react (cron-friendly)
+python -m sp500_vault.edgar_live watch --interval 120 # daemon, polls every 2 min
 
 # Serve the web UI (interactive graph + ask-the-vault) and API
 uvicorn sp500_vault.api:app --reload
@@ -137,8 +148,12 @@ from CDN — needs internet in the browser) served by FastAPI:
   layer — thicker links co-move more.
 - Click a node to highlight neighbors and see its quant metrics + relationships;
   hover for a tooltip; search, zoom (＋/−/**fit**), `Esc` to clear.
-- **Ask the vault** posts to `/query`; the answer renders as markdown in a
-  floating card with clickable `[[TICKER]]` links and source chips.
+- **Vault chat** posts to `/query` and is **conversational** — it keeps the
+  turn history so follow-ups resolve against context (*"what about its
+  suppliers?"* after a question about NVIDIA → searched as *"Who are NVIDIA's
+  suppliers?"*, shown as `↳ searched: …`). Answers render as markdown with
+  clickable `[[TICKER]]` links, **inline source citations** (news / 8-K URLs you
+  can click through to), and source chips. **↺ New chat** resets the thread.
 - **📈 Backtest** opens a card with the lead-lag IC heatmap + long/short equity
   curve. **💼 Portfolio** takes your holdings (e.g. `AAPL 30, DELL 25, NFLX 20`)
   and highlights their connected supply-chain exposure on the graph — weighted
@@ -174,6 +189,17 @@ supply-chain-dependent assemblers (SMCI, AMD, HPE). A true *sentiment* lead-lag
 needs history, which now accumulates in `data/sentiment/history.csv` for later.
 See `vault/_Backtest.md`.
 
+The **event-driven backtest** is a true event study over the **append-only
+archive** (`archive.py`) — every 8-K and headline is accumulated over time
+(written by the daily layers *and* the real-time poller, and back-fillable from a
+year of EDGAR history). For each filing it measures the **market-adjusted forward
+return** (`stock − SPY`) over 1/3/5 days and aggregates by 8-K item type with a
+hit-rate and t-stat. On the seeded year (644 filings), **Reg-FD disclosures (item
+7.01) show ~+1.6% 5-day abnormal return with t≈2.1**, while scheduled earnings
+(2.02) show little drift — i.e. the *unscheduled, discretionary* disclosures carry
+the tradable signal. N and significance grow as the archive accumulates. See
+`vault/_EventBacktest.md`.
+
 Each layer is its own subcommand precisely so they don't have to refresh together.
 
 ## Daily automation (Windows Task Scheduler)
@@ -188,6 +214,22 @@ Get-ScheduledTaskInfo    -TaskName SP500_RAG_Vault_Daily   # status / next run
 Start-ScheduledTask      -TaskName SP500_RAG_Vault_Daily   # run now
 Unregister-ScheduledTask -TaskName SP500_RAG_Vault_Daily   # remove
 ```
+
+### Real-time 8-K reaction (intraday, free)
+
+The daily job covers the slow-moving layers; **8-K material events are
+time-sensitive**, so `edgar_live.py` watches them in near-real-time. It polls SEC
+EDGAR's **`getcurrent`** feed (continuously updated; no key, no quota) every ~2
+minutes, matches entry CIKs against the universe, and on a new universe 8-K
+refreshes that ticker's filings and **incrementally re-embeds its `Material
+Events` chunk** — so the vault reacts **within minutes of the filing hitting the
+wire**, before most financial press writes it up. The feed even carries the item
+codes inline (`Item 5.02: …`), so the event *type* is known straight from the
+poll. Run `scripts\edgar_live_watch.bat` as a Startup task (always-on daemon), or
+point Task Scheduler at `sp500_vault.edgar_live tick` on a 2–5 min trigger. A
+content-hash `seen` set means restarts never re-react to filings already ingested.
+True sub-second push would need a paid websocket feed; this poller is ~free and
+gets the reaction latency to minutes.
 
 See **[`RAG_ROADMAP.md`](RAG_ROADMAP.md)** for the plan to take the RAG system to
 institutional grade — data feeds, reranking, hybrid retrieval, and eval/observability.
@@ -238,6 +280,15 @@ dated headlines — not just the one-line sentiment summary. The news chunk re-e
 only when the headlines change, so the daily refresh keeps the RAG current for ~50
 small embeddings (fractions of a cent). The raw articles also accumulate sentiment
 history in `data/sentiment/history.csv` for the lead-lag work.
+
+**Retrieval is filing-aware (8-K material events):** the `filings` layer pulls each
+company's recent **8-K** filings from SEC EDGAR — one cached request per ticker —
+and maps the **item codes to the material-event taxonomy** (2.02 earnings, 5.02
+executive change, 1.01 material agreement, 2.01 acquisition, 2.06 impairment, …).
+Those events are embedded as a per-ticker `Material Events` chunk, so the vault
+answers catalyst questions like *"what material events has NVIDIA filed, and did any
+involve executive changes?"* grounded in the actual filing dates and types — all
+free (no document fetch needed; the submissions index carries the item codes).
 
 **Ranking & aggregate questions route to the graph, not the vectors.** A question
 like *"which company is the most systemically central?"* or *"which memory makers

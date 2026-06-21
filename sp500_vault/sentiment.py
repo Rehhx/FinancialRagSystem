@@ -11,7 +11,7 @@ import datetime as dt
 import json
 from concurrent.futures import ThreadPoolExecutor
 
-from . import config, llm
+from . import archive, config, llm
 from .data_sources import news
 from .universe import BY_TICKER
 
@@ -45,6 +45,7 @@ def run_for_ticker(ticker: str) -> dict:
         "articles": articles,
     }
     _path(ticker).write_text(json.dumps(record, indent=2), encoding="utf-8")
+    archive.append_news(ticker, articles)   # accumulate headlines into the append-only archive
     provs = ",".join(sorted({a.get("provider", "?") for a in articles})) or "none"
     print(f"  [sent] {ticker}: {scored['label']} ({scored['score']:+.2f}, "
           f"{len(articles)} articles via {provs})")

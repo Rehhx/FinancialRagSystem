@@ -6,7 +6,7 @@ single biggest retrieval-quality lever after data. Retrieval fetches a wide pool
 (~24+), the reranker scores every candidate, and we keep the top-k. Pluggable:
 
     cross_encoder  BAAI/bge-reranker-v2-m3 via sentence-transformers (free, local)
-    llm            Claude listwise rerank (no extra deps; one call per query)
+    llm            listwise rerank via Claude or OpenAI (RERANK_PROVIDER); one call/query
     none           pass-through (vector order)
 
 Selected via ``config.RERANKER``. Any backend failure falls back to vector order,
@@ -37,7 +37,7 @@ def _rerank_cross_encoder(query: str, docs: list, top_n: int) -> list:
     return [docs[i] for i in order[:top_n]]
 
 
-# ── LLM listwise rerank (Claude) ─────────────────────────────────────────────
+# ── LLM listwise rerank (Claude or OpenAI, per ANSWER_PROVIDER) ───────────────
 
 _RANK_SCHEMA = {
     "type": "object",
@@ -45,6 +45,9 @@ _RANK_SCHEMA = {
     "required": ["ranking"],
     "additionalProperties": False,
 }
+
+_RANK_SYSTEM = ("You are a search reranker. Order candidates by how directly they help "
+                "answer the query. Respond with JSON {\"ranking\": [indices best-first]}.")
 
 
 def _rerank_llm(query: str, docs: list, top_n: int) -> list:
@@ -55,13 +58,19 @@ def _rerank_llm(query: str, docs: list, top_n: int) -> list:
         for i, d in enumerate(docs))
     user = (f"Query: {query}\n\nCandidate chunks:\n{listed}\n\n"
             f"Return the indices of the most relevant chunks, best first, as a JSON array.")
-    msg = llm.anthropic_client().messages.create(
-        model=config.ANTHROPIC_MODEL, max_tokens=512,
-        system="You are a search reranker. Order candidates by how directly they help answer the query.",
-        output_config={"effort": "low", "format": {"type": "json_schema", "schema": _RANK_SCHEMA}},
-        messages=[{"role": "user", "content": user}],
-    )
-    idx = json.loads(llm._first_text(msg)).get("ranking", [])
+    if config.RERANK_PROVIDER.lower() == "openai":
+        resp = llm.openai_client().chat.completions.create(
+            model=config.OPENAI_ANSWER_MODEL, max_tokens=512,
+            response_format={"type": "json_object"},
+            messages=[{"role": "system", "content": _RANK_SYSTEM},
+                      {"role": "user", "content": user}])
+        idx = json.loads(resp.choices[0].message.content or "{}").get("ranking", [])
+    else:
+        msg = llm.anthropic_client().messages.create(
+            model=config.ANTHROPIC_MODEL, max_tokens=512, system=_RANK_SYSTEM,
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": _RANK_SCHEMA}},
+            messages=[{"role": "user", "content": user}])
+        idx = json.loads(llm._first_text(msg)).get("ranking", [])
     seen, out = set(), []
     for i in idx:
         if isinstance(i, int) and 0 <= i < len(docs) and i not in seen:
