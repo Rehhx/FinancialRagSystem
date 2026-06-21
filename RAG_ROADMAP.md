@@ -352,5 +352,15 @@ it: market-adjusted forward returns (`stock − SPY`) at 1/3/5 days, aggregated 
 scheduled earnings (2.02) are efficient — the unscheduled/discretionary
 disclosures hold the signal. The archive grows daily, so N and significance
 improve over time. Forward-return math and dedup are pure, unit-tested functions.
-Next: fetch 8-K body text for a one-line LLM summary of the highest-signal items
-(1.01 / 2.01 / 5.02), and a sentiment lead-lag over the accumulating news archive.
+**Sentiment lead-lag (shipped — free).** `sentiment_backtest.py` builds a daily
+panel from the news archive (per-article provider sentiment, Marketaux/Alpha
+Vantage, averaged per ticker-day) and reuses the same forward-return engine to
+report the **Spearman rank IC** (sentiment → market-adjusted forward return) and
+the above-vs-below-median spread by horizon — the standard cross-sectional
+predictive-power test, plus a news-volume IC check. Early read on the seeded
+archive (87 ticker-day obs) is directionally right: positive IC and a positive
+high−low spread at 1–3 days; N is small and strengthens daily as the archive
+grows. Rank-IC is a pure, unit-tested function. Next: fetch 8-K body text for a
+one-line LLM summary of the highest-signal items (1.01 / 2.01 / 5.02), and fold
+the dense daily Claude sentiment (`sentiment/history.csv`) into the panel as it
+accumulates for a denser, longer-horizon signal.

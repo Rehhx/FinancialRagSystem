@@ -41,6 +41,7 @@ Ingestion ──► Processing ──► Vault (markdown + [[links]]) ──► 
 | Filings (8-K) | `filings.py` (`data_sources/edgar.py` — SEC 8-K material events) | `data/filings/<T>.json` |
 | Event archive | `archive.py` (append-only 8-K + news log) | `data/archive/{filings,news}.csv` |
 | Event backtest | `event_backtest.py` (event study by 8-K item type) | `data/signals/event_backtest.json`, `vault/_EventBacktest.md` |
+| Sentiment lead-lag | `sentiment_backtest.py` (news sentiment → forward return, rank IC) | `data/signals/sentiment_backtest.json`, `vault/_SentimentBacktest.md` |
 | Signals | `signals.py` (Alpaca IEX → yfinance) | `data/signals/correlations.json`, `vault/_Signals.md` |
 | Backtest | `backtest.py` (lead-lag) | `data/signals/backtest.json`, `vault/_Backtest.md` |
 | Vault render | `vault_render.py` | `vault/<T>.md`, `<T>_news_log.md`, `_Dashboard.md` |
@@ -96,6 +97,7 @@ python -m sp500_vault.pipeline signals        # price co-movement validation + e
 python -m sp500_vault.pipeline backtest       # supplier-momentum -> customer lead-lag
 python -m sp500_vault.pipeline archive        # accumulate 8-Ks/news into the append-only event archive
 python -m sp500_vault.pipeline eventbacktest  # event study: forward returns after 8-Ks, by item type
+python -m sp500_vault.pipeline sentimentbacktest  # sentiment lead-lag: news sentiment -> forward return (rank IC)
 python -m sp500_vault.pipeline vault          # also writes _Dashboard.md
 python -m sp500_vault.pipeline index          # incremental — only re-embeds changed chunks
 python -m sp500_vault.pipeline index --force  # full rebuild (re-embed everything)
@@ -199,6 +201,16 @@ hit-rate and t-stat. On the seeded year (644 filings), **Reg-FD disclosures (ite
 (2.02) show little drift — i.e. the *unscheduled, discretionary* disclosures carry
 the tradable signal. N and significance grow as the archive accumulates. See
 `vault/_EventBacktest.md`.
+
+The **sentiment lead-lag** asks the complementary question: does today's *news
+sentiment* predict forward returns? It builds a daily panel from the news archive
+(per-article provider sentiment averaged per ticker-day) and reports the
+**Spearman rank IC** (sentiment → market-adjusted forward return) and the
+above-vs-below-median return spread by horizon — the standard cross-sectional
+predictive-power test. The early read is directionally right (positive IC and a
+positive high-minus-low spread at 1–3 days); N is small on a fresh archive and
+strengthens daily. Same forward-return engine as the event study. See
+`vault/_SentimentBacktest.md`.
 
 Each layer is its own subcommand precisely so they don't have to refresh together.
 

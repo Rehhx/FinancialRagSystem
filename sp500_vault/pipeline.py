@@ -18,7 +18,7 @@ import sqlite3
 import sys
 
 from . import (archive, backtest, config, evaluation, event_backtest, filings, graph_export,
-               quant, relationships, sentiment, signals, vault_render, rag)
+               quant, relationships, sentiment, sentiment_backtest, signals, vault_render, rag)
 from .universe import SECTORS, TICKERS, tickers_for_group
 
 # Windows consoles default to cp1252 and choke on em-dashes/arrows in model output.
@@ -112,6 +112,16 @@ def _stats() -> None:
         print(f"  backtest        L/S Sharpe {p['sharpe']}, best IC "
               f"{b['ic'] if b else '—'} (k{b['k']}->h{b['h']}); {bt['as_of']}")
 
+    eb = config.SIGNALS_DIR / "event_backtest.json"
+    if eb.exists():
+        e = json.loads(eb.read_text(encoding="utf-8"))
+        print(f"  event backtest  {e['events']} 8-Ks studied; forward returns by item type")
+    sb = config.SIGNALS_DIR / "sentiment_backtest.json"
+    if sb.exists():
+        d = json.loads(sb.read_text(encoding="utf-8"))
+        ic1 = next((c["rank_ic"] for c in d.get("sentiment_ic", []) if c["h"] == 1), None)
+        print(f"  sentiment lead-lag  {d['n_obs']} ticker-day obs, 1d rank-IC {ic1}")
+
     notes = [p for p in config.VAULT_DIR.glob("*.md")
              if not p.stem.endswith("_news_log") and not p.stem.startswith("_")]
     print(f"  vault notes     {len(notes)}")
@@ -134,10 +144,10 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="sp500_vault", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    no_selection = {"index", "export", "dashboard", "stats", "eventbacktest"}
+    no_selection = {"index", "export", "dashboard", "stats", "eventbacktest", "sentimentbacktest"}
     for name in ("quant", "relationships", "sentiment", "filings", "archive", "signals",
-                 "backtest", "eventbacktest", "vault", "index", "dashboard", "export",
-                 "stats", "all"):
+                 "backtest", "eventbacktest", "sentimentbacktest", "vault", "index",
+                 "dashboard", "export", "stats", "all"):
         sp = sub.add_parser(name, help=f"Run the {name} layer")
         if name not in no_selection:
             _add_selection(sp)
@@ -178,6 +188,9 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.cmd == "eventbacktest":
         event_backtest.run()
+        return
+    if args.cmd == "sentimentbacktest":
+        sentiment_backtest.run()
         return
 
     tickers = _select(args)

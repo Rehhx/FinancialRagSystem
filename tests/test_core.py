@@ -249,6 +249,15 @@ def test_event_forward_return():
     assert eb._forward_return(close, "2026-06-09", 3) is None
 
 
+def test_sentiment_rank_ic():
+    from sp500_vault import sentiment_backtest as sb
+    # perfectly monotonic -> IC = +1; reversed -> -1; too few obs -> None
+    assert abs(sb._rank_ic([1, 2, 3, 4, 5], [10, 20, 30, 40, 50]) - 1.0) < 1e-9
+    assert abs(sb._rank_ic([1, 2, 3, 4, 5], [50, 40, 30, 20, 10]) + 1.0) < 1e-9
+    assert sb._rank_ic([1, 2], [1, 2]) is None
+    assert sb._rank_ic([1, 1, 1], [1, 2, 3]) is None        # no variance in x -> None
+
+
 def test_archive_news_key_dedup():
     from sp500_vault import archive
     a = {"url": "https://x.com/a?utm=1", "headline": "NVDA up"}
