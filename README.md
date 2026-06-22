@@ -203,6 +203,12 @@ from CDN — needs internet in the browser) served by FastAPI:
 - **↻ Regenerate** (top bar) re-exports `graph.json` from the current vault data
   server-side (`POST /regenerate` → `graph_export.run()`; no LLM calls) and swaps
   it in live — use it after editing the overrides CSV or re-running a CLI layer.
+- **Motion & micro-interactions:** nodes pop in with a staggered entrance and the
+  header stats count up on load; hovering a node grows it, clicking ripples and
+  adds a soft glow, and **particles flow along the selected company's edges in the
+  direction of the supply chain** (supplier → customer). Cards slide in, buttons
+  lift on hover, and a live pulse marks the brand. All of it honors
+  `prefers-reduced-motion` (animations collapse to instant for users who opt out).
 
 You can also regenerate from the CLI: `python -m sp500_vault.pipeline export`.
 

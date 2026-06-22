@@ -267,12 +267,51 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .muted { color: var(--muted); } .kbd { font: 11px ui-monospace, monospace; background: var(--panel2);
     border: 1px solid var(--line2); border-radius: 4px; padding: 0 5px; }
+
+  /* ── Motion & micro-interactions (senior-polish pass) ───────────────────── */
+  /* Floating cards slide+scale in when shown. */
+  @keyframes cardIn { from { opacity: 0; transform: translateY(10px) scale(.985); }
+                      to   { opacity: 1; transform: none; } }
+  #answerCard.show, #backtestCard.show, #portfolioCard.show, #eventCard.show {
+    animation: cardIn .24s cubic-bezier(.2,.75,.3,1); }
+
+  /* Buttons: tactile hover lift + press. */
+  header button.ghost { transition: transform .12s, border-color .15s, color .15s, box-shadow .15s; }
+  header button.ghost:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+  header button.ghost:active:not(:disabled) { transform: translateY(0); }
+  button.primary { transition: transform .12s, filter .15s, box-shadow .15s; }
+  button.primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(90,162,255,.32); }
+  button.primary:active:not(:disabled) { transform: translateY(0); }
+  .chip { transition: transform .12s, border-color .15s, opacity .15s, background .15s; }
+  .chip:hover { transform: translateY(-1px); }
+
+  /* Graph nodes: smooth radius/opacity, glow-on-select handled via SVG filter. */
+  #graph circle.node { transition: stroke-width .15s; }
+  .flow-dot { pointer-events: none; }
+  .pulse-ring { pointer-events: none; }
+
+  /* Detail panel + catalysts ease in. */
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  #detail .name, .metricgrid, .edgelist, .cat { animation: fadeUp .26s ease both; }
+  .cat-item { transition: background .15s, border-color .15s, transform .12s; }
+  .cat-item:hover { transform: translateX(2px); border-color: var(--line2); }
+
+  /* Live "online" dot on the brand. */
+  .live-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--supplier);
+    margin-left:6px; box-shadow:0 0 0 0 rgba(65,209,120,.6); animation: livePulse 2.4s ease-out infinite; vertical-align: middle; }
+  @keyframes livePulse { 0% { box-shadow:0 0 0 0 rgba(65,209,120,.55);} 70% { box-shadow:0 0 0 7px rgba(65,209,120,0);} 100% { box-shadow:0 0 0 0 rgba(65,209,120,0);} }
+
+  /* Respect users who prefer reduced motion — kill all the above. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+      transition-duration: .001ms !important; scroll-behavior: auto !important; }
+  }
 </style>
 </head>
 <body>
 <div id="app">
   <header>
-    <div class="brand">📈 RAG Vault <span class="mk">Graph Explorer</span></div>
+    <div class="brand">📈 RAG Vault <span class="mk">Graph Explorer</span><span class="live-dot" title="Live vault"></span></div>
     <div class="stat">Companies <b id="s-nodes">—</b></div>
     <div class="stat">Edges <b id="s-edges">—</b></div>
     <div class="stat" id="s-rel"></div>
@@ -395,8 +434,10 @@ const tooltip = d3.select("#tooltip");
 const gZoom = svg.append("g");
 const gHull = gZoom.append("g").attr("class", "hulls");   // behind everything
 const gLink = gZoom.append("g").attr("fill", "none");
+const gFlow = gZoom.append("g").attr("class", "flow");    // supply-chain particles (above links)
 const gNode = gZoom.append("g");
 const gLabel = gZoom.append("g");
+const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // arrowhead markers, one per relation color
 const defs = svg.append("defs");
@@ -405,6 +446,13 @@ for (const [rel, col] of Object.entries(REL_COLOR)) {
     .attr("refX", 9).attr("refY", 0).attr("markerWidth", 6).attr("markerHeight", 6).attr("orient", "auto")
     .append("path").attr("d", "M0,-4L9,0L0,4").attr("fill", col).attr("opacity", 0.8);
 }
+// Soft glow for the selected node.
+const glow = defs.append("filter").attr("id", "glow")
+  .attr("x", "-60%").attr("y", "-60%").attr("width", "220%").attr("height", "220%");
+glow.append("feGaussianBlur").attr("stdDeviation", "3.4").attr("result", "b");
+const gm = glow.append("feMerge");
+gm.append("feMergeNode").attr("in", "b");
+gm.append("feMergeNode").attr("in", "SourceGraphic");
 
 let nodes = [], links = [], byId = {}, adj = {};
 let rCap, rDeg, rCent, sim, zoom, currentK = 1, selected = null;
@@ -450,8 +498,8 @@ function applyData(data) {
   rCent = d3.scaleSqrt().domain([d3.min(cents) || 0, d3.max(cents) || 1]).range([5, 30]);
   [...nodes].sort((a, b) => (b.centrality || 0) - (a.centrality || 0)).forEach((n, i) => n._crank = i + 1);
 
-  d3.select("#s-nodes").text(nodes.length);
-  d3.select("#s-edges").text(links.length);
+  countUp("#s-nodes", nodes.length);
+  countUp("#s-edges", links.length);
   const relCount = links.reduce((a, l) => (a[l.relation] = (a[l.relation] || 0) + 1, a), {});
   d3.select("#s-rel").html(Object.entries(relCount)
     .map(([r, c]) => `<span style="color:${REL_COLOR[r]}">●</span> ${r} <b>${c}</b>`).join(" &nbsp; "));
@@ -560,15 +608,26 @@ function buildGraph() {
     .attr("stroke-opacity", d => REL_OPACITY[d.relation])
     .attr("marker-end", d => `url(#arr-${d.relation})`);
 
-  gNode.selectAll("circle").data(nodes).join("circle")
-    .attr("r", sizeFn).attr("fill", nodeFill).attr("stroke", nodeStroke).attr("stroke-width", 1.8)
+  const circ = gNode.selectAll("circle").data(nodes).join("circle")
+    .attr("class", "node")
+    .attr("fill", nodeFill).attr("stroke", nodeStroke).attr("stroke-width", 1.8)
     .style("cursor", "pointer")
-    .on("mouseover", showTip).on("mousemove", moveTip).on("mouseout", hideTip)
+    .on("mouseover", (e, d) => { showTip(e, d); hoverGrow(e.currentTarget, d, true); })
+    .on("mousemove", moveTip)
+    .on("mouseout", (e, d) => { hideTip(); hoverGrow(e.currentTarget, d, false); })
     .on("click", (e, d) => { e.stopPropagation(); selectNode(d); })
     .call(d3.drag()
       .on("start", (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
       .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
       .on("end", (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
+  if (firstLoad && !REDUCED) {              // staggered "pop-in" on first paint
+    // Named transition ("enter") so the update() opacity transition below — which
+    // runs on the default name — can't cancel it and strand nodes at r=0.
+    circ.attr("r", 0).transition("enter").delay((d, i) => Math.min(i * 11, 520)).duration(520)
+      .ease(d3.easeBackOut.overshoot(1.5)).attr("r", sizeFn);
+  } else {
+    circ.attr("r", sizeFn);
+  }
 
   gLabel.selectAll("text").data(nodes).join("text")
     .attr("class", "label").attr("text-anchor", "middle").text(d => d.id);
@@ -668,7 +727,8 @@ function neighborSet(d) {
 function highlight(d) {
   const nbrs = neighborSet(d);
   gNode.selectAll("circle").attr("opacity", n => !visibleNode(n) ? 0.07 : nbrs.has(n.id) ? 1 : 0.1)
-    .attr("stroke-width", n => n === d ? 3.2 : 1.8);
+    .attr("stroke-width", n => n === d ? 3.2 : 1.8)
+    .attr("filter", n => n === d ? "url(#glow)" : null);
   gLink.selectAll("path").attr("stroke-opacity", l => {
     if (!visibleLink(l)) return 0;
     return (l.source.id === d.id || l.target.id === d.id) ? 0.95 : 0.04;
@@ -676,6 +736,8 @@ function highlight(d) {
   updateLabels();
 }
 function clearHighlight() {
+  stopFlow();
+  gNode.selectAll("circle").attr("filter", null);
   if (portfolio) { applyPortfolioStyle(); return; }
   gNode.selectAll("circle").attr("opacity", n => visibleNode(n) ? 1 : 0.07)
     .attr("stroke", nodeStroke).attr("stroke-width", 1.8);
@@ -683,7 +745,70 @@ function clearHighlight() {
   updateLabels();
 }
 
-function selectNode(d) { selected = d; highlight(d); renderDetail(d); }
+function selectNode(d) { selected = d; highlight(d); pulse(d); startFlow(d); renderDetail(d); }
+
+// ── Delight: hover-grow, click ripple, and supply-chain flow particles ──────
+function hoverGrow(el, d, on) {
+  if (REDUCED || !el) return;
+  d3.select(el).transition().duration(on ? 130 : 170)
+    .attr("r", sizeFn(d) * (on ? 1.18 : 1));
+}
+function pulse(d) {
+  if (REDUCED) return;
+  gFlow.append("circle").attr("class", "pulse-ring")
+    .attr("cx", d.x).attr("cy", d.y).attr("r", sizeFn(d))
+    .attr("fill", "none").attr("stroke", nodeFill(d)).attr("stroke-width", 2.4).attr("opacity", 0.85)
+    .transition().duration(620).ease(d3.easeCubicOut)
+    .attr("r", sizeFn(d) + 30).attr("stroke-width", 0.4).attr("opacity", 0).remove();
+}
+// Particles drift source -> target along each edge of the focused node, so the
+// supply chain visibly "flows" in the direction of the arrowheads.
+let flowRAF = null, flowDots = [];
+function stopFlow() {
+  if (flowRAF) { cancelAnimationFrame(flowRAF); flowRAF = null; }
+  if (flowDots.length) { gFlow.selectAll(".flow-dot").remove(); flowDots = []; }
+}
+function startFlow(d) {
+  stopFlow();
+  if (REDUCED) return;
+  const edges = [];
+  gLink.selectAll("path").each(function (l) {
+    if (visibleLink(l) && (l.source.id === d.id || l.target.id === d.id))
+      edges.push({ path: this, rel: l.relation });
+  });
+  const PER = 3;
+  edges.forEach(e => {
+    for (let i = 0; i < PER; i++) {
+      const c = gFlow.append("circle").attr("class", "flow-dot").attr("r", 2.3)
+        .attr("fill", REL_COLOR[e.rel]);
+      flowDots.push({ el: c.node(), path: e.path, t: (i + Math.random() * 0.4) / PER });
+    }
+  });
+  if (flowDots.length) flowRAF = requestAnimationFrame(flowTick);
+}
+function flowTick() {
+  const lenCache = new Map();
+  for (const fd of flowDots) {
+    let len = lenCache.get(fd.path);
+    if (len === undefined) { try { len = fd.path.getTotalLength(); } catch { len = 0; } lenCache.set(fd.path, len); }
+    if (!len) continue;
+    fd.t += 0.55 / len;                       // constant speed regardless of edge length
+    if (fd.t > 1) fd.t -= 1;
+    const p = fd.path.getPointAtLength(fd.t * len);
+    const a = Math.sin(fd.t * Math.PI);       // fade in/out near the endpoints
+    fd.el.setAttribute("cx", p.x); fd.el.setAttribute("cy", p.y);
+    fd.el.setAttribute("opacity", (0.2 + 0.8 * a).toFixed(3));
+  }
+  flowRAF = requestAnimationFrame(flowTick);
+}
+function countUp(sel, val) {
+  const node = d3.select(sel);
+  if (REDUCED || !firstLoad) { node.text(val); return; }
+  node.transition().duration(900).ease(d3.easeCubicOut).tween("t", function () {
+    const i = d3.interpolateNumber(0, val);
+    return t => { this.textContent = Math.round(i(t)); };
+  });
+}
 
 function renderDetail(d) {
   const el = document.getElementById("detail");
