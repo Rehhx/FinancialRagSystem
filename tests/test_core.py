@@ -204,6 +204,58 @@ def test_parse_8k_filings_limit():
     assert len(events) == 1
 
 
+# ── 8-K body-text LLM summaries ──────────────────────────────────────────────
+
+def test_parse_8k_captures_primary_doc():
+    import datetime as _dt
+    from sp500_vault.data_sources import edgar
+    recent = dict(_RECENT, primaryDocument=["nvda-8k.htm", "q.htm", "b.htm", "old.htm"])
+    events = edgar._parse_8k_filings(recent, lookback_days=90, limit=8, today=_dt.date(2026, 6, 20))
+    assert events[0]["primary_doc"] == "nvda-8k.htm"      # carried through for the body fetch
+
+
+def test_extract_8k_body_slices_to_first_item():
+    from sp500_vault.data_sources import edgar
+    raw = ("UNITED STATES SECURITIES AND EXCHANGE COMMISSION   FORM 8-K   "
+           "Registrant address boilerplate here.   Item 5.02 Departure of Directors. "
+           "The CFO resigned effective today.")
+    body = edgar._extract_8k_body(raw, max_chars=500)
+    assert body.startswith("Item 5.02")                  # cover-page boilerplate dropped
+    assert "CFO resigned" in body
+
+
+def test_extract_8k_body_caps_length():
+    from sp500_vault.data_sources import edgar
+    body = edgar._extract_8k_body("Item 1.01 " + "x " * 5000, max_chars=100)
+    assert len(body) == 100
+
+
+def test_high_signal_items_and_filter():
+    from sp500_vault import config, filings
+    wanted = config.high_signal_items()
+    assert {"1.01", "2.01", "5.02"} <= wanted and "2.02" not in wanted and "9.01" not in wanted
+    exec_change = {"items": [{"code": "5.02", "label": "x"}]}
+    earnings = {"items": [{"code": "2.02", "label": "x"}]}
+    assert filings._is_high_signal(exec_change, wanted)
+    assert not filings._is_high_signal(earnings, wanted)
+
+
+def test_attach_summaries_uses_cache_without_llm(monkeypatch):
+    """A cached accession is reused verbatim — no body fetch, no LLM call."""
+    from sp500_vault import filings
+    from sp500_vault.data_sources import edgar
+
+    def _boom(*a, **k):
+        raise AssertionError("should not fetch/summarize a cached filing")
+    monkeypatch.setattr(edgar, "fetch_8k_body", _boom)
+
+    events = [{"accession": "0001-26-9", "doc_url": "http://x/8k.htm",
+               "items": [{"code": "5.02", "label": "Departure"}]}]
+    cache = {"0001-26-9": {"summary": "The CEO stepped down."}}
+    added = filings._attach_summaries("NVDA", events, cache)
+    assert added == 0 and events[0]["summary"] == "The CEO stepped down."
+
+
 _ATOM = """<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
 <entry>

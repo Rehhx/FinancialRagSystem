@@ -101,6 +101,22 @@ EDGAR_BUSINESS_MAX_CHARS = int(os.getenv("EDGAR_BUSINESS_MAX_CHARS", "45000"))
 EDGAR_8K_LOOKBACK_DAYS = int(os.getenv("EDGAR_8K_LOOKBACK_DAYS", "90"))
 EDGAR_8K_MAX = int(os.getenv("EDGAR_8K_MAX", "8"))
 
+# 8-K body-text LLM summaries: for the highest-signal item types (material
+# agreements, acquisitions, exec changes, impairments) we fetch the actual filing
+# body and have Claude write a one-line "what happened" summary. Item codes like
+# 2.02 (earnings — just numbers) or 9.01 (exhibits) carry no narrative worth
+# summarizing, so they are excluded. Summaries are cached by accession (one LLM
+# call per filing, ever), so this is a small, bounded, one-time cost.
+EDGAR_8K_SUMMARIZE = os.getenv("EDGAR_8K_SUMMARIZE", "true").lower() in ("1", "true", "yes")
+EDGAR_8K_SUMMARY_ITEMS = os.getenv(
+    "EDGAR_8K_SUMMARY_ITEMS", "1.01,1.02,1.03,2.01,2.05,2.06,4.02,5.01,5.02")
+EDGAR_8K_BODY_MAX_CHARS = int(os.getenv("EDGAR_8K_BODY_MAX_CHARS", "12000"))
+
+
+def high_signal_items() -> set[str]:
+    """The 8-K item codes worth an LLM body summary (from EDGAR_8K_SUMMARY_ITEMS)."""
+    return {c.strip() for c in EDGAR_8K_SUMMARY_ITEMS.split(",") if c.strip()}
+
 
 def require(*keys: str) -> None:
     """Raise a clear error if a required secret is missing."""

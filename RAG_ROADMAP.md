@@ -360,7 +360,23 @@ the above-vs-below-median spread by horizon — the standard cross-sectional
 predictive-power test, plus a news-volume IC check. Early read on the seeded
 archive (87 ticker-day obs) is directionally right: positive IC and a positive
 high−low spread at 1–3 days; N is small and strengthens daily as the archive
-grows. Rank-IC is a pure, unit-tested function. Next: fetch 8-K body text for a
-one-line LLM summary of the highest-signal items (1.01 / 2.01 / 5.02), and fold
-the dense daily Claude sentiment (`sentiment/history.csv`) into the panel as it
-accumulates for a denser, longer-horizon signal.
+grows. Rank-IC is a pure, unit-tested function.
+
+**8-K body-text LLM summaries (shipped — bounded one-time cost).** The submissions
+index gives the event *type* (item code) for free, but not *what* happened. For the
+**highest-signal item types** (1.01 material agreement, 2.01 acquisition, 5.02
+exec/board change, 2.06 impairment, 4.02 non-reliance, …) the `filings` layer now
+fetches the actual 8-K body (`edgar.fetch_8k_body` → first `Item X.XX` heading,
+capped) and has Claude write a **one specific sentence** (`llm.summarize_8k`,
+structured output): *"Tim Cook will transition from CEO to Executive Chair effective
+Sept 1 2026; John Ternus appointed CEO"*, *"AMD entered a new five-year $5.0B
+revolving credit facility with JPMorgan"*, *"Broadcom CFO Kirsten Spears to retire;
+Amie Thuener (ex-Alphabet CAO) appointed CFO"*. The summary is embedded **inline in
+the `Material Events` chunk** and cited with the SEC URL, so RAG answers carry the
+specifics, not just the item label — a direct recall/specificity lift on catalyst
+questions. Each filing is summarized **once, ever** (cached by accession in
+`data/filings/summaries.json`), so the cost is small, bounded, and one-time; the
+body extractor, high-signal filter, and cache reuse are pure, unit-tested functions
+(`EDGAR_8K_SUMMARIZE` toggles it off). Next: fold the dense daily Claude sentiment
+(`sentiment/history.csv`) into the lead-lag panel as it accumulates for a denser,
+longer-horizon signal.

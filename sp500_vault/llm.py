@@ -152,6 +152,49 @@ def score_sentiment(ticker: str, name: str, headlines: list[str]) -> dict:
     return out
 
 
+# ── 8-K material-event summary ───────────────────────────────────────────────
+
+_8K_SUMMARY_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "summary": {
+            "type": "string",
+            "description": "One specific sentence (<= 30 words) stating what materially "
+                           "happened. Empty string if the body has no material detail.",
+        },
+    },
+    "required": ["summary"],
+    "additionalProperties": False,
+}
+
+_8K_SUMMARY_SYSTEM = (
+    "You summarize the material event in an SEC 8-K filing in ONE specific sentence "
+    "(<= 30 words). Name the concrete fact: for a 5.02, the executive and their role and "
+    "whether they departed or were appointed; for a 1.01/2.01, the counterparty/target and "
+    "any dollar amount; for a 2.06, the size and nature of the impairment; for a 4.02, what "
+    "financials are non-reliable. Omit legal boilerplate, forward-looking disclaimers, and "
+    "exhibit lists. If the body is only an exhibit pointer or press-release reference with no "
+    "substance, return an empty string."
+)
+
+
+def summarize_8k(ticker: str, item_labels: str, body_text: str) -> str:
+    """One-line 'what happened' summary of a high-signal 8-K from its body text."""
+    if not body_text.strip():
+        return ""
+    user = (f"Filer: {ticker}. 8-K item(s): {item_labels}.\n\n"
+            f"=== 8-K BODY ===\n{body_text}")
+    msg = anthropic_client().messages.create(
+        model=config.ANTHROPIC_MODEL,
+        max_tokens=400,
+        system=_8K_SUMMARY_SYSTEM,
+        output_config={"effort": config.ANTHROPIC_EFFORT,
+                       "format": {"type": "json_schema", "schema": _8K_SUMMARY_SCHEMA}},
+        messages=[{"role": "user", "content": user}],
+    )
+    return json.loads(_first_text(msg)).get("summary", "").strip()
+
+
 # ── RAG answer ───────────────────────────────────────────────────────────────
 
 _RAG_SYSTEM = (

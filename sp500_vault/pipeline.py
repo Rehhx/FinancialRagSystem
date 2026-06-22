@@ -76,7 +76,7 @@ def _stats() -> None:
     latest = max([d for d in dates if d], default="—")
     print(f"  sentiment       {len(sj)}/{len(TICKERS)} scored (latest {latest})")
 
-    fj = list(config.FILINGS_DIR.glob("*.json"))
+    fj = [p for p in config.FILINGS_DIR.glob("*.json") if p.stem != "summaries"]
     if fj:
         n_events = 0
         for p in fj:
@@ -84,7 +84,10 @@ def _stats() -> None:
                 n_events += json.loads(p.read_text(encoding="utf-8")).get("event_count", 0)
             except Exception:  # noqa: BLE001
                 pass
-        print(f"  filings (8-K)   {len(fj)}/{len(TICKERS)} tickers, {n_events} material events")
+        sc = config.FILINGS_DIR / "summaries.json"
+        n_sum = len(json.loads(sc.read_text(encoding="utf-8"))) if sc.exists() else 0
+        print(f"  filings (8-K)   {len(fj)}/{len(TICKERS)} tickers, {n_events} material events, "
+              f"{n_sum} LLM-summarized")
 
     af, an = config.DATA_DIR / "archive" / "filings.csv", config.DATA_DIR / "archive" / "news.csv"
     if af.exists() or an.exists():

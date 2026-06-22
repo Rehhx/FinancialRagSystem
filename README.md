@@ -38,7 +38,7 @@ Ingestion ──► Processing ──► Vault (markdown + [[links]]) ──► 
 | Quant | `quant.py` (`data_sources/market.py` — FMP → yfinance) | `data/quant/<T>.json` |
 | Relationships | `relationships.py` (`data_sources/edgar.py`, `news.py`) | `data/relationships.db` |
 | Sentiment | `sentiment.py` (`data_sources/news.py` — Google News + Yahoo RSS + Finnhub + Marketaux + NewsAPI + Alpha Vantage) | `data/sentiment/<T>.json` |
-| Filings (8-K) | `filings.py` (`data_sources/edgar.py` — SEC 8-K material events) | `data/filings/<T>.json` |
+| Filings (8-K) | `filings.py` (`data_sources/edgar.py` — SEC 8-K material events + one-line LLM body summaries for high-signal items) | `data/filings/<T>.json`, `summaries.json` |
 | Event archive | `archive.py` (append-only 8-K + news log) | `data/archive/{filings,news}.csv` |
 | Event backtest | `event_backtest.py` (event study by 8-K item type) | `data/signals/event_backtest.json`, `vault/_EventBacktest.md` |
 | Sentiment lead-lag | `sentiment_backtest.py` (news sentiment → forward return, rank IC) | `data/signals/sentiment_backtest.json`, `vault/_SentimentBacktest.md` |
@@ -92,7 +92,7 @@ python -m sp500_vault.pipeline quant
 python -m sp500_vault.pipeline quant --force   # re-fetch all fundamentals (e.g. after adding FMP_API_KEY)
 python -m sp500_vault.pipeline relationships --sector cloud_software   # one cluster at a time
 python -m sp500_vault.pipeline sentiment
-python -m sp500_vault.pipeline filings        # SEC 8-K material events (earnings, exec changes, M&A)
+python -m sp500_vault.pipeline filings        # SEC 8-K material events + one-line LLM summaries (high-signal items)
 python -m sp500_vault.pipeline signals        # price co-movement validation + edge weights
 python -m sp500_vault.pipeline backtest       # supplier-momentum -> customer lead-lag
 python -m sp500_vault.pipeline archive        # accumulate 8-Ks/news into the append-only event archive
@@ -299,8 +299,19 @@ and maps the **item codes to the material-event taxonomy** (2.02 earnings, 5.02
 executive change, 1.01 material agreement, 2.01 acquisition, 2.06 impairment, …).
 Those events are embedded as a per-ticker `Material Events` chunk, so the vault
 answers catalyst questions like *"what material events has NVIDIA filed, and did any
-involve executive changes?"* grounded in the actual filing dates and types — all
-free (no document fetch needed; the submissions index carries the item codes).
+involve executive changes?"* grounded in the actual filing dates and types — mostly
+free (the submissions index carries the item codes; no document fetch needed).
+
+For the **highest-signal item types** (material agreements 1.01, acquisitions 2.01,
+exec/board changes 5.02, impairments 2.06, non-reliance 4.02, …) the index codes
+alone don't say *what* happened, so the `filings` layer fetches the actual 8-K body
+and has Claude write a **one-line "what happened" summary** — *"Tim Cook will
+transition from CEO to Executive Chair effective Sept 1 2026; John Ternus appointed
+CEO"*, *"AMD entered a new five-year $5.0B revolving credit facility with JPMorgan"*.
+The summary is embedded inline in the `Material Events` chunk (and cited with the SEC
+URL), so answers carry the specifics, not just the item label. Each filing is
+summarized **once, ever** — cached by accession in `data/filings/summaries.json` — so
+the cost is small, bounded, and one-time (toggle with `EDGAR_8K_SUMMARIZE`).
 
 **Ranking & aggregate questions route to the graph, not the vectors.** A question
 like *"which company is the most systemically central?"* or *"which memory makers

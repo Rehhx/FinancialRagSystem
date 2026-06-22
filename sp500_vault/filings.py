@@ -20,13 +20,69 @@ from concurrent.futures import ThreadPoolExecutor
 from . import archive, config
 from .data_sources import edgar
 
+# Accession-keyed cache of one-line LLM summaries — so each high-signal 8-K is
+# summarized exactly once, ever (the per-ticker record overwrites daily, but the
+# events themselves repeat). Shared across tickers within a run.
+_SUMMARY_CACHE = config.FILINGS_DIR / "summaries.json"
+
 
 def _path(ticker: str):
     return config.FILINGS_DIR / f"{ticker}.json"
 
 
-def run_for_ticker(ticker: str) -> dict:
+def _load_summaries() -> dict:
+    if _SUMMARY_CACHE.exists():
+        try:
+            return json.loads(_SUMMARY_CACHE.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return {}
+    return {}
+
+
+def _save_summaries(cache: dict) -> None:
+    _SUMMARY_CACHE.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+
+
+def _is_high_signal(event: dict, wanted: set[str]) -> bool:
+    return any(it.get("code") in wanted for it in event.get("items", []))
+
+
+def _attach_summaries(ticker: str, events: list[dict], cache: dict, force: bool = False) -> int:
+    """For each high-signal 8-K, attach a cached or freshly-fetched one-line summary.
+    Mutates ``events`` (adds ``summary``) and ``cache`` (adds new accessions).
+    Returns the number of *new* LLM summaries generated."""
+    from . import llm
+    wanted = config.high_signal_items()
+    added = 0
+    for e in events:
+        acc = e.get("accession")
+        if acc and acc in cache and not force:
+            e["summary"] = cache[acc].get("summary", "")
+            continue
+        if not _is_high_signal(e, wanted) or not e.get("doc_url"):
+            continue
+        try:
+            body = edgar.fetch_8k_body(e["doc_url"])
+            labels = "; ".join(it.get("label", "") for it in e.get("items", []))
+            summary = llm.summarize_8k(ticker, labels, body)
+        except Exception:  # noqa: BLE001 - a single bad doc shouldn't fail the ticker
+            summary = ""
+        if summary:
+            e["summary"] = summary
+            added += 1
+            if acc:
+                cache[acc] = {"ticker": ticker, "filing_date": e.get("filing_date"),
+                              "items": [it.get("code") for it in e.get("items", [])],
+                              "summary": summary}
+    return added
+
+
+def run_for_ticker(ticker: str, summary_cache: dict | None = None) -> dict:
     events = edgar.fetch_recent_8k(ticker)
+    own_cache = summary_cache is None
+    cache = _load_summaries() if own_cache else summary_cache
+    if config.EDGAR_8K_SUMMARIZE and config.ANTHROPIC_API_KEY:
+        _attach_summaries(ticker, events, cache)
     record = {
         "ticker": ticker,
         "as_of": dt.date.today().isoformat(),
@@ -34,9 +90,13 @@ def run_for_ticker(ticker: str) -> dict:
         "events": events,
     }
     _path(ticker).write_text(json.dumps(record, indent=2), encoding="utf-8")
+    if own_cache:
+        _save_summaries(cache)
     archive.append_filings(ticker, events)   # accumulate into the append-only event archive
     latest = events[0]["filing_date"] if events else "—"
-    print(f"  [8-K] {ticker}: {len(events)} filings (latest {latest})")
+    n_sum = sum(1 for e in events if e.get("summary"))
+    extra = f", {n_sum} summarized" if n_sum else ""
+    print(f"  [8-K] {ticker}: {len(events)} filings (latest {latest}{extra})")
     return record
 
 
@@ -57,6 +117,8 @@ def run(tickers: list[str], force: bool = False, workers: int = 4) -> None:
     print(f"[8-K] fetching material events for {len(todo)} tickers "
           f"({skipped} already fresh, skipped)…")
     # Keep workers modest — SEC rate-limits to ~10 req/s and edgar._get sleeps 0.2s.
+    cache = _load_summaries()                # shared, so a filing is summarized once across tickers
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        list(ex.map(run_for_ticker, todo))
-    print(f"[8-K] done -> {config.FILINGS_DIR}")
+        list(ex.map(lambda t: run_for_ticker(t, summary_cache=cache), todo))
+    _save_summaries(cache)
+    print(f"[8-K] done -> {config.FILINGS_DIR} ({len(cache)} cached 8-K summaries)")

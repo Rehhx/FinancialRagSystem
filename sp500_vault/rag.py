@@ -102,6 +102,8 @@ def _filings_digest(ticker: str, events: list[dict], limit: int = 10) -> str:
     for e in events[:limit]:
         labels = "; ".join(it.get("label", "") for it in e.get("items", [])) or "8-K filing"
         line = f"- [{e.get('filing_date')}] 8-K — {labels}"
+        if e.get("summary"):
+            line += f": {e['summary']}"          # one-line LLM summary of high-signal events
         if e.get("url"):
             line += f" SOURCE: {e['url']}"
         lines.append(line)

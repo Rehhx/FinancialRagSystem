@@ -143,9 +143,9 @@ def _parse_8k_filings(recent: dict, lookback_days: int, limit: int,
         c = recent.get(name, [])
         return c if len(c) == n else c + [""] * (n - len(c))
 
-    fdates, rdates, accs, items, descs = (
+    fdates, rdates, accs, items, descs, pdocs = (
         col("filingDate"), col("reportDate"), col("accessionNumber"),
-        col("items"), col("primaryDocDescription"))
+        col("items"), col("primaryDocDescription"), col("primaryDocument"))
 
     out: list[dict] = []
     for i, form in enumerate(forms):
@@ -164,6 +164,7 @@ def _parse_8k_filings(recent: dict, lookback_days: int, limit: int,
             "report_date": rdates[i] or fdates[i],
             "items": material or [{"code": c, "label": _item_label(c)} for c in codes],
             "accession": accs[i],
+            "primary_doc": pdocs[i] or "",
             "description": descs[i] or "",
         })
         if len(out) >= limit:
@@ -185,9 +186,35 @@ def fetch_recent_8k(ticker: str, lookback_days: int | None = None,
         return []
     events = _parse_8k_filings(data.get("filings", {}).get("recent", {}), lookback_days, limit)
     for e in events:
-        e["url"] = (f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/"
-                    f"{e['accession'].replace('-', '')}/")
+        folder = (f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/"
+                  f"{e['accession'].replace('-', '')}/")
+        e["url"] = folder
+        if e.get("primary_doc"):
+            e["doc_url"] = folder + e["primary_doc"]   # the actual 8-K body document
     return events
+
+
+# ── 8-K body text (for one-line LLM summaries of high-signal events) ──────────
+
+
+def _extract_8k_body(text: str, max_chars: int | None = None) -> str:
+    """Pure: collapse an 8-K document to readable text, starting at the first
+    'Item X.XX' heading (drops cover-page boilerplate) and capped for cost."""
+    max_chars = max_chars or config.EDGAR_8K_BODY_MAX_CHARS
+    norm = re.sub(r"\s+", " ", text).strip()
+    m = re.search(r"Item\s+\d\.\d\d", norm)
+    if m:
+        norm = norm[m.start():]
+    return norm[:max_chars]
+
+
+def fetch_8k_body(doc_url: str, max_chars: int | None = None) -> str:
+    """Fetch and clean the body text of one 8-K primary document."""
+    if not doc_url:
+        return ""
+    html = _get(doc_url).text
+    soup = BeautifulSoup(html, "lxml")
+    return _extract_8k_body(soup.get_text(" "), max_chars)
 
 
 def fetch_business_section(ticker: str) -> dict | None:
