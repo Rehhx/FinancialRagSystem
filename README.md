@@ -41,7 +41,7 @@ Ingestion ──► Processing ──► Vault (markdown + [[links]]) ──► 
 | Filings (8-K) | `filings.py` (`data_sources/edgar.py` — SEC 8-K material events + one-line LLM body summaries for high-signal items) | `data/filings/<T>.json`, `summaries.json` |
 | Event archive | `archive.py` (append-only 8-K + news log) | `data/archive/{filings,news}.csv` |
 | Event backtest | `event_backtest.py` (event study by 8-K item type) | `data/signals/event_backtest.json`, `vault/_EventBacktest.md` |
-| Sentiment lead-lag | `sentiment_backtest.py` (news sentiment → forward return, rank IC) | `data/signals/sentiment_backtest.json`, `vault/_SentimentBacktest.md` |
+| Sentiment lead-lag | `sentiment_backtest.py` (Claude daily + provider sentiment → forward return, rank IC) | `data/signals/sentiment_backtest.json`, `vault/_SentimentBacktest.md` |
 | Signals | `signals.py` (Alpaca IEX → yfinance) | `data/signals/correlations.json`, `vault/_Signals.md` |
 | Backtest | `backtest.py` (lead-lag) | `data/signals/backtest.json`, `vault/_Backtest.md` |
 | Vault render | `vault_render.py` | `vault/<T>.md`, `<T>_news_log.md`, `_Dashboard.md` |
@@ -202,14 +202,22 @@ hit-rate and t-stat. On the seeded year (644 filings), **Reg-FD disclosures (ite
 the tradable signal. N and significance grow as the archive accumulates. See
 `vault/_EventBacktest.md`.
 
-The **sentiment lead-lag** asks the complementary question: does today's *news
-sentiment* predict forward returns? It builds a daily panel from the news archive
-(per-article provider sentiment averaged per ticker-day) and reports the
-**Spearman rank IC** (sentiment → market-adjusted forward return) and the
-above-vs-below-median return spread by horizon — the standard cross-sectional
-predictive-power test. The early read is directionally right (positive IC and a
-positive high-minus-low spread at 1–3 days); N is small on a fresh archive and
-strengthens daily. Same forward-return engine as the event study. See
+The **sentiment lead-lag** asks the complementary question: does today's *sentiment*
+predict forward returns? It runs the same forward-return engine over **two sources,
+side by side**, so their predictive power can be compared:
+
+- **Claude daily sentiment** (`sentiment/history.csv`) — the *dense* panel: every
+  ticker is scored every refresh day, so it grows ~50 observations/day and quickly
+  supports longer horizons.
+- **News-provider sentiment** (Marketaux / Alpha Vantage) — the *sparse* panel:
+  per-article scores averaged per ticker-day from the news archive.
+
+For each it reports the **Spearman rank IC** (sentiment → market-adjusted forward
+return) and the above-vs-below-median return spread by horizon — the standard
+cross-sectional predictive-power test (plus a news-volume IC check). The provider
+panel's early read is directionally right (rank IC **+0.13 at 1d, +0.31 at 3d**,
+positive high-minus-low spread); the Claude panel only began accumulating recently,
+so its forward returns fill in as trading days elapse. N strengthens daily. See
 `vault/_SentimentBacktest.md`.
 
 Each layer is its own subcommand precisely so they don't have to refresh together.

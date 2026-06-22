@@ -352,15 +352,19 @@ it: market-adjusted forward returns (`stock − SPY`) at 1/3/5 days, aggregated 
 scheduled earnings (2.02) are efficient — the unscheduled/discretionary
 disclosures hold the signal. The archive grows daily, so N and significance
 improve over time. Forward-return math and dedup are pure, unit-tested functions.
-**Sentiment lead-lag (shipped — free).** `sentiment_backtest.py` builds a daily
-panel from the news archive (per-article provider sentiment, Marketaux/Alpha
-Vantage, averaged per ticker-day) and reuses the same forward-return engine to
-report the **Spearman rank IC** (sentiment → market-adjusted forward return) and
-the above-vs-below-median spread by horizon — the standard cross-sectional
-predictive-power test, plus a news-volume IC check. Early read on the seeded
-archive (87 ticker-day obs) is directionally right: positive IC and a positive
-high−low spread at 1–3 days; N is small and strengthens daily as the archive
-grows. Rank-IC is a pure, unit-tested function.
+**Sentiment lead-lag (shipped — free; now dual-source).** `sentiment_backtest.py`
+reuses the event-study forward-return engine to test whether sentiment predicts
+returns, scoring **two sources side by side** so their predictive power can be
+compared: (1) the **dense daily Claude sentiment** (`sentiment/history.csv`) — every
+ticker scored every refresh day, ~50 obs/day — and (2) the **sparse provider
+sentiment** (Marketaux/Alpha Vantage, per-article, averaged per ticker-day from the
+news archive). For each it reports the **Spearman rank IC** (sentiment →
+market-adjusted forward return) and the above-vs-below-median spread by horizon, plus
+a news-volume IC check. The provider panel's early read (87 ticker-day obs) is
+directionally right — rank IC **+0.13 at 1d, +0.31 at 3d**, positive high−low spread;
+the Claude panel just began accumulating, so its forward returns fill in as trading
+days elapse (the densest panel will dominate within a week). The panel builder
+(`_normalize_history`) and rank-IC are pure, unit-tested functions.
 
 **8-K body-text LLM summaries (shipped — bounded one-time cost).** The submissions
 index gives the event *type* (item code) for free, but not *what* happened. For the
@@ -377,6 +381,4 @@ specifics, not just the item label — a direct recall/specificity lift on catal
 questions. Each filing is summarized **once, ever** (cached by accession in
 `data/filings/summaries.json`), so the cost is small, bounded, and one-time; the
 body extractor, high-signal filter, and cache reuse are pure, unit-tested functions
-(`EDGAR_8K_SUMMARIZE` toggles it off). Next: fold the dense daily Claude sentiment
-(`sentiment/history.csv`) into the lead-lag panel as it accumulates for a denser,
-longer-horizon signal.
+(`EDGAR_8K_SUMMARIZE` toggles it off).

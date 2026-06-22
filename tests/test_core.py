@@ -310,6 +310,21 @@ def test_sentiment_rank_ic():
     assert sb._rank_ic([1, 1, 1], [1, 2, 3]) is None        # no variance in x -> None
 
 
+def test_normalize_history_panel():
+    import pandas as pd
+    from sp500_vault import sentiment_backtest as sb
+    raw = pd.DataFrame({
+        "ticker": ["NVDA", "AMD", "BAD"],
+        "date": ["2026-06-20", "2026-06-21", "not-a-date"],
+        "score": ["0.35", "-0.4", "0.1"],
+        "label": ["Bullish", "Bearish", "Neutral"],
+    })
+    panel = sb._normalize_history(raw)
+    assert list(panel.columns) == ["ticker", "date", "sentiment", "volume"]
+    assert len(panel) == 2                                   # unparseable date dropped
+    assert panel.iloc[0]["sentiment"] == 0.35 and (panel["volume"] == 1.0).all()
+
+
 def test_archive_news_key_dedup():
     from sp500_vault import archive
     a = {"url": "https://x.com/a?utm=1", "headline": "NVDA up"}

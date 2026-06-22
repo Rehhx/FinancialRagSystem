@@ -122,8 +122,9 @@ def _stats() -> None:
     sb = config.SIGNALS_DIR / "sentiment_backtest.json"
     if sb.exists():
         d = json.loads(sb.read_text(encoding="utf-8"))
-        ic1 = next((c["rank_ic"] for c in d.get("sentiment_ic", []) if c["h"] == 1), None)
-        print(f"  sentiment lead-lag  {d['n_obs']} ticker-day obs, 1d rank-IC {ic1}")
+        for s in d.get("sources", []):
+            ic1 = next((c["rank_ic"] for c in s.get("sentiment_ic", []) if c["h"] == 1), None)
+            print(f"  sentiment ({s['name']})  {s['n_obs']} obs, 1d rank-IC {ic1}")
 
     notes = [p for p in config.VAULT_DIR.glob("*.md")
              if not p.stem.endswith("_news_log") and not p.stem.startswith("_")]
