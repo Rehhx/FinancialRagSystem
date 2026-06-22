@@ -184,6 +184,13 @@ from CDN — needs internet in the browser) served by FastAPI:
   and highlights their connected supply-chain exposure on the graph — weighted
   sentiment, connected market-cap, and the hidden names ≥2 of your positions
   depend on (concentration risk).
+- **📊 Event study** opens a card visualizing the two catalyst backtests: a
+  diverging bar chart of **market-adjusted forward returns (stock − SPY) by 8-K
+  item type** (1/3/5-day selector, `n ≥ 5`, sorted best→worst, with **t-stat** and
+  **✦ for |t| ≥ 2**) — surfacing the **Reg-FD (7.01) drift** (+1.6% 5-day, t≈2.1,
+  n≈106) while scheduled earnings (2.02) read efficient — plus the **sentiment
+  lead-lag rank IC** per source (Claude daily + provider). Served read-only from
+  `/event_backtest.json` + `/sentiment_backtest.json`.
 - **↻ Regenerate** (top bar) re-exports `graph.json` from the current vault data
   server-side (`POST /regenerate` → `graph_export.run()`; no LLM calls) and swaps
   it in live — use it after editing the overrides CSV or re-running a CLI layer.

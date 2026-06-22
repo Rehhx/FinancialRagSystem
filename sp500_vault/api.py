@@ -30,6 +30,8 @@ app = FastAPI(title="S&P 500 RAG Vault", version="0.3.0", lifespan=_lifespan)
 _WEB_DIR = Path(__file__).resolve().parent / "web"
 _GRAPH_FILE = config.DATA_DIR / "graph" / "graph.json"
 _BACKTEST_FILE = config.SIGNALS_DIR / "backtest.json"
+_EVENT_FILE = config.SIGNALS_DIR / "event_backtest.json"
+_SENTBT_FILE = config.SIGNALS_DIR / "sentiment_backtest.json"
 
 
 class Turn(BaseModel):
@@ -77,6 +79,23 @@ def backtest_data() -> JSONResponse:
     if _BACKTEST_FILE.exists():
         return JSONResponse(json.loads(_BACKTEST_FILE.read_text(encoding="utf-8")))
     return JSONResponse(backtest.run(list(TICKERS)))
+
+
+@app.get("/event_backtest.json")
+def event_backtest_data() -> JSONResponse:
+    """8-K event study: market-adjusted forward returns by item type. Read-only —
+    returns empty if not yet computed (it needs price history; run via the CLI)."""
+    if _EVENT_FILE.exists():
+        return JSONResponse(json.loads(_EVENT_FILE.read_text(encoding="utf-8")))
+    return JSONResponse({"by_event": [], "events": 0})
+
+
+@app.get("/sentiment_backtest.json")
+def sentiment_backtest_data() -> JSONResponse:
+    """Sentiment lead-lag: rank IC by source/horizon. Read-only."""
+    if _SENTBT_FILE.exists():
+        return JSONResponse(json.loads(_SENTBT_FILE.read_text(encoding="utf-8")))
+    return JSONResponse({"sources": []})
 
 
 @app.post("/regenerate")

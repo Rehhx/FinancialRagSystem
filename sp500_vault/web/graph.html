@@ -207,6 +207,32 @@
     font-variant-numeric: tabular-nums; color: #e8eef6; cursor: default; }
   .heat .cell.best { box-shadow: inset 0 0 0 1.5px var(--accent); font-weight: 700; }
 
+  /* Event-study card */
+  #eventCard { position: absolute; top: 64px; right: 16px; width: 488px; max-width: calc(100% - 32px);
+    max-height: calc(100% - 80px); overflow-y: auto; background: var(--panel); border: 1px solid var(--line2);
+    border-radius: 12px; box-shadow: var(--shadow); display: none; flex-direction: column; z-index: 26; }
+  #eventCard.show { display: flex; }
+  #eventCard .hd { display: flex; align-items: center; gap: 8px; padding: 11px 14px;
+    border-bottom: 1px solid var(--line); font-weight: 650; }
+  #eventCard .hd .ev-meta { color: var(--faint); font-size: 11px; font-weight: 400; }
+  #eventCard .hd .x { margin-left: auto; cursor: pointer; color: var(--muted); border: 0; background: 0; font-size: 16px; }
+  .ev-controls { display: flex; align-items: center; gap: 10px; padding: 10px 14px 2px; }
+  .ev-controls .seg { flex: none; width: 220px; }
+  #evBars { padding: 4px 14px 8px; }
+  .ev-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+  .ev-row .lab { width: 150px; flex: none; font-size: 11px; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ev-row .lab .cd { color: var(--faint); font: 10px ui-monospace, monospace; }
+  .ev-row .track { position: relative; flex: 1; height: 15px; }
+  .ev-row .track .zero { position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: var(--line2); }
+  .ev-row .track .bar { position: absolute; top: 3px; height: 9px; border-radius: 2px; }
+  .ev-row .val { width: 132px; flex: none; font-size: 10.5px; font-variant-numeric: tabular-nums;
+    color: var(--muted); text-align: right; }
+  #evSent { padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 5px; }
+  .ev-sent-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+  .ev-sent-row .src { font-weight: 600; min-width: 64px; text-transform: capitalize; }
+  .ev-sent-row .ev-ic { color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
   /* Portfolio card */
   #portfolioCard { position: absolute; top: 64px; left: 16px; width: 412px; max-width: calc(100% - 32px);
     background: var(--panel); border: 1px solid var(--line2); border-radius: 12px;
@@ -254,6 +280,7 @@
     <div class="pill">drag to pan · scroll to zoom · <span class="kbd">Esc</span> clears</div>
     <button class="ghost" id="openPf" title="Portfolio exposure overlay — paste holdings to see your connected supply-chain exposure">💼 Portfolio</button>
     <button class="ghost" id="openBt" title="Lead-lag backtest: supplier momentum → customer returns">📈 Backtest</button>
+    <button class="ghost" id="openEv" title="Event study: market-adjusted forward returns after 8-K filings by item type + sentiment lead-lag">📊 Event study</button>
     <button class="ghost" id="regen" title="Re-export graph.json from the current vault data (no LLM calls)">↻ Regenerate</button>
   </header>
 
@@ -321,6 +348,19 @@
       <div id="btHeatmap"></div>
       <div class="bt-sub">Most-predicted customers (IC) — click to focus:</div>
       <div id="btCustomers"></div>
+    </div>
+    <div id="eventCard">
+      <div class="hd">📊 Event study <span class="ev-meta"></span><button class="x" id="closeEv">✕</button></div>
+      <div class="ev-controls">
+        <div class="seg" id="evHorizon">
+          <button data-h="1">1-day</button><button data-h="3">3-day</button><button data-h="5" class="on">5-day</button>
+        </div>
+        <span class="muted" style="font-size:11px">market-adjusted (stock − SPY) · <b style="color:var(--text)">✦</b> = |t| ≥ 2</span>
+      </div>
+      <div class="bt-sub">Mean forward return after each 8-K item type (n ≥ 5), best → worst:</div>
+      <div id="evBars"></div>
+      <div class="bt-sub">Sentiment lead-lag — rank IC (sentiment → market-adjusted forward return):</div>
+      <div id="evSent"></div>
     </div>
     <div id="portfolioCard">
       <div class="hd">💼 Portfolio exposure<button class="x" id="closePf">✕</button></div>
@@ -761,7 +801,7 @@ document.getElementById("search").addEventListener("change", e => {
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     selected = null; clearHighlight(); renderDetail(null);
-    ["answerCard", "backtestCard", "portfolioCard"].forEach(id =>
+    ["answerCard", "backtestCard", "portfolioCard", "eventCard"].forEach(id =>
       document.getElementById(id).classList.remove("show"));
   }
 });
@@ -910,6 +950,83 @@ function drawHeatmap(grid, best) {
 }
 document.getElementById("openBt").addEventListener("click", openBacktest);
 document.getElementById("closeBt").addEventListener("click", () => btCard.classList.remove("show"));
+
+// Event-study card — 8-K market-adjusted forward returns by item type + sentiment lead-lag
+const evCard = document.getElementById("eventCard");
+let eventData = null, sentBtData = null, evHorizon = 5;
+const EV_SHORT = {
+  "1.01": "Material agreement", "1.02": "Agreement terminated", "1.03": "Bankruptcy",
+  "2.01": "Acquisition / disposition", "2.02": "Earnings", "2.03": "New debt obligation",
+  "2.05": "Exit / disposal costs", "2.06": "Material impairment", "3.02": "Equity issuance (unreg.)",
+  "3.03": "Security-holder rights", "4.01": "Auditor change", "4.02": "Non-reliance (restate)",
+  "5.01": "Change in control", "5.02": "Exec / board change", "5.03": "Charter / bylaw amend.",
+  "5.07": "Shareholder vote", "5.08": "Shareholder nominations", "7.01": "Reg-FD disclosure",
+  "8.01": "Other events",
+};
+async function openEvent() {
+  evCard.classList.add("show"); btCard.classList.remove("show");   // share the top-right slot
+  if (!eventData) {
+    document.getElementById("evBars").innerHTML = '<div class="muted" style="padding:8px 0">Loading event study…</div>';
+    try {
+      const [ev, se] = await Promise.all([
+        fetch("/event_backtest.json").then(r => r.json()),
+        fetch("/sentiment_backtest.json").then(r => r.json()),
+      ]);
+      eventData = ev; sentBtData = se;
+    } catch (e) {
+      document.getElementById("evBars").innerHTML = '<div class="muted" style="padding:8px 0">Error: ' + e + '</div>'; return;
+    }
+  }
+  renderEvent();
+}
+function renderEvent() {
+  const d = eventData || {};
+  document.querySelector("#eventCard .ev-meta").textContent =
+    d.events ? `· ${d.events} 8-Ks · ${d.tickers} tickers · vs ${d.market_proxy || "—"}` : "";
+  renderEvBars(d, evHorizon);
+  renderEvSent(sentBtData || {});
+}
+function renderEvBars(d, h) {
+  const el = document.getElementById("evBars");
+  const rows = (d.by_event || []).filter(r => r.h === h && r.n >= 5 && r.code !== "8-K")
+    .sort((a, b) => b.mean_abn_ret - a.mean_abn_ret);
+  if (!rows.length) { el.innerHTML = '<div class="muted" style="padding:8px 0">No event data yet — run <span class="kbd">pipeline eventbacktest</span>.</div>'; return; }
+  const maxAbs = d3.max(rows, r => Math.abs(r.mean_abn_ret)) || 0.01;
+  el.innerHTML = rows.map(r => {
+    const ret = r.mean_abn_ret, pos = ret >= 0, w = Math.abs(ret) / maxAbs * 50;
+    const sig = r.t_stat != null && Math.abs(r.t_stat) >= 2;
+    const col = pos ? "var(--supplier)" : "#e5534b";
+    const bar = `<span class="bar" style="${pos ? "left:50%" : "right:50%"};width:${w}%;background:${col};opacity:${sig ? 1 : 0.45}"></span>`;
+    const tt = r.t_stat != null ? `t ${r.t_stat >= 0 ? "+" : ""}${r.t_stat.toFixed(1)}` : "t —";
+    const name = EV_SHORT[r.code] || r.label;
+    const val = `<b style="color:${col}">${pos ? "+" : ""}${(ret * 100).toFixed(2)}%</b> ${sig ? "✦" : "&nbsp;"} `
+      + `<span class="muted">${tt} · n${r.n}</span>`;
+    return `<div class="ev-row"><span class="lab" title="${escapeHtml(r.label)}"><span class="cd">${r.code}</span> ${escapeHtml(name)}</span>`
+      + `<span class="track"><span class="zero"></span>${bar}</span><span class="val">${val}</span></div>`;
+  }).join("");
+}
+function renderEvSent(s) {
+  const el = document.getElementById("evSent");
+  const srcs = s.sources || [];
+  if (!srcs.length) { el.innerHTML = '<div class="muted">No sentiment backtest yet — run <span class="kbd">pipeline sentimentbacktest</span>.</div>'; return; }
+  el.innerHTML = srcs.map(src => {
+    const ics = src.sentiment_ic || [];
+    let cells;
+    if (!ics.length) cells = '<span class="muted" style="font-size:11.5px">accumulating — forward returns pending</span>';
+    else cells = ics.map(c => {
+      const v = c.rank_ic, col = v == null ? "var(--muted)" : v >= 0 ? "var(--supplier)" : "#e5534b";
+      return `<span class="ev-ic">${c.h}d <b style="color:${col}">${v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2)}</b></span>`;
+    }).join(" · ");
+    return `<div class="ev-sent-row"><span class="src">${src.name}</span>`
+      + `<span class="muted" style="font-size:11px">${src.n_obs} obs</span> ${cells}</div>`;
+  }).join("");
+}
+d3.select("#evHorizon").selectAll("button").on("click", function () {
+  d3.select("#evHorizon").selectAll("button").classed("on", false);
+  d3.select(this).classed("on", true); evHorizon = +this.dataset.h; renderEvBars(eventData || {}, evHorizon);
+});
+document.getElementById("openEv").addEventListener("click", openEvent);
+document.getElementById("closeEv").addEventListener("click", () => evCard.classList.remove("show"));
 
 // Portfolio exposure overlay
 const pfCard = document.getElementById("portfolioCard");

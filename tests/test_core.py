@@ -351,6 +351,19 @@ def test_catalysts_endpoint_contract():
         assert {"date", "headline", "source", "url"} <= set(d["news"][0])
 
 
+def test_event_study_endpoints_contract():
+    # The event-study card depends on these two read-only endpoints.
+    from fastapi.testclient import TestClient
+    from sp500_vault.api import app
+    c = TestClient(app)
+    ev = c.get("/event_backtest.json")
+    assert ev.status_code == 200 and "by_event" in ev.json()
+    for r in ev.json().get("by_event", [])[:1]:
+        assert {"code", "label", "h", "n", "mean_abn_ret", "t_stat"} <= set(r)
+    se = c.get("/sentiment_backtest.json")
+    assert se.status_code == 200 and "sources" in se.json()
+
+
 def test_rag_session_id_stable_per_conversation():
     # Same first user message -> same session id across turns; empty history -> None.
     h1 = [{"role": "user", "content": "Who supplies NVIDIA?"},
