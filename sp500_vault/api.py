@@ -8,22 +8,24 @@ API:  POST /query  {"question": "...", "k": 6, "sector": "Technology"}
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import backtest, config, graph_export, rag, tracing
+from . import backtest, config, filings, graph_export, rag, sentiment, tracing
 from .universe import PILOT_UNIVERSE, TICKERS
 
-app = FastAPI(title="S&P 500 RAG Vault", version="0.3.0")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    yield
+    tracing.flush()   # flush any buffered Langfuse events when the server stops
 
 
-@app.on_event("shutdown")
-def _flush_traces() -> None:
-    """Flush any buffered Langfuse events when the server stops."""
-    tracing.flush()
+app = FastAPI(title="S&P 500 RAG Vault", version="0.3.0", lifespan=_lifespan)
 
 _WEB_DIR = Path(__file__).resolve().parent / "web"
 _GRAPH_FILE = config.DATA_DIR / "graph" / "graph.json"
@@ -86,6 +88,31 @@ def regenerate() -> JSONResponse:
     overrides CSV or re-running a data layer from the CLI.
     """
     return JSONResponse(graph_export.run())
+
+
+@app.get("/catalysts/{ticker}")
+def catalysts(ticker: str) -> JSONResponse:
+    """Recent catalysts for one company: 8-K material events (with the one-line
+    LLM summaries for high-signal items) + recent news headlines. Loaded lazily by
+    the UI when a node is clicked, so graph.json stays lean."""
+    t = ticker.upper()
+    events = [
+        {"date": e.get("filing_date"),
+         "items": [it.get("label") for it in e.get("items", [])],
+         "codes": [it.get("code") for it in e.get("items", [])],
+         "summary": e.get("summary") or "",
+         "url": e.get("url")}
+        for e in ((filings.load(t) or {}).get("events") or [])[:8]
+    ]
+    news = [
+        {"date": (a.get("datetime") or "")[:10],
+         "headline": a.get("headline") or "",
+         "source": a.get("source") or a.get("provider") or "",
+         "summary": (a.get("summary") or "")[:200],
+         "url": a.get("url") or ""}
+        for a in ((sentiment.load(t) or {}).get("articles") or [])[:8]
+    ]
+    return JSONResponse({"ticker": t, "events": events, "news": news})
 
 
 @app.get("/health")

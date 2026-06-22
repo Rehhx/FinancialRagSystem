@@ -166,6 +166,13 @@ from CDN — needs internet in the browser) served by FastAPI:
   layer — thicker links co-move more.
 - Click a node to highlight neighbors and see its quant metrics + relationships;
   hover for a tooltip; search, zoom (＋/−/**fit**), `Esc` to clear.
+- The detail panel also shows the company's **recent catalysts** — its **8-K
+  material events** (with the one-line **LLM summaries** for high-signal items —
+  *"Tim Cook will transition from CEO to Executive Chair…"* — and a ↗ SEC link)
+  plus **recent news headlines** (clickable through to the source). Loaded lazily
+  per node from `GET /catalysts/{ticker}` (cached client-side) so `graph.json`
+  stays lean — clicking a company surfaces its supply chain *and* its live
+  catalysts in one place.
 - **Vault chat** posts to `/query` and is **conversational** — it keeps the
   turn history so follow-ups resolve against context (*"what about its
   suppliers?"* after a question about NVIDIA → searched as *"Who are NVIDIA's

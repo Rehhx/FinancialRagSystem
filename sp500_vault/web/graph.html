@@ -116,6 +116,25 @@
   .edge .ar { color: var(--faint); font-variant-numeric: tabular-nums; }
   .edge .ev { color: var(--faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+  /* Catalysts (8-K material events + recent news) in the detail panel */
+  .cat { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .cat-hd { display: flex; align-items: center; gap: 7px; margin: 8px 0 5px; font-weight: 600; font-size: 12px; }
+  .cat-hd .n { color: var(--faint); font-weight: 400; }
+  .cat-item { padding: 5px 7px; border-radius: 7px; margin-bottom: 4px; background: var(--panel2);
+    border: 1px solid var(--line); }
+  .cat-item .top { display: flex; align-items: baseline; gap: 6px; }
+  .cat-item .dt { color: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; flex: none; }
+  .cat-item .lbl { color: var(--text); font-size: 11.5px; font-weight: 600; }
+  .cat-item .lbl.news { font-weight: 500; color: var(--muted); }
+  .cat-item .sum { color: var(--text); font-size: 11.5px; margin-top: 2px; }
+  .cat-item .sum.ev { color: var(--customer); }       /* 8-K LLM summary — tinted to stand out */
+  .cat-item .src-lnk { color: var(--accent); text-decoration: none; font-size: 10.5px; margin-left: auto; flex: none; }
+  .cat-item .src-lnk:hover { text-decoration: underline; }
+  .cat-item .prov { color: var(--faint); font-size: 10.5px; }
+  .cat .empty { color: var(--faint); font-size: 11.5px; }
+  .codebadge { font: 10px ui-monospace, monospace; color: var(--accent); background: var(--accent-dim);
+    border-radius: 4px; padding: 0 4px; flex: none; }
+
   /* Graph chrome */
   svg { width: 100%; height: 100%; display: block; cursor: grab; }
   svg:active { cursor: grabbing; }
@@ -659,10 +678,47 @@ function renderDetail(d) {
        ${metricCard("Rev growth", pct(m.revenue_growth_yoy))}${metricCard("Gross margin", pct(m.gross_margin))}
      </div>
      <div class="muted" style="font-size:11px">Centrality <b style="color:var(--accent)">#${d._crank}</b>/${nodes.length} · ${d.degree} links${d.neighbor_corr != null ? ` · co-move ρ̄ <b style="color:var(--accent)">${d.neighbor_corr}</b>` : ""}</div>
-     <div class="edgelist">${edgeHtml || '<div class="muted" style="font-size:12px">No modeled relationships.</div>'}</div>`;
+     <div class="edgelist">${edgeHtml || '<div class="muted" style="font-size:12px">No modeled relationships.</div>'}</div>` +
+    `<div class="cat" id="catBox"><div class="muted" style="font-size:11.5px">Loading catalysts…</div></div>`;
   el.querySelectorAll(".edge").forEach(e => e.onclick = () => { const n = byId[e.dataset.id]; if (n) { selectNode(n); focusNode(n); } });
+  loadCatalysts(d.id);
 }
 const metricCard = (l, v) => `<div class="m"><div class="l">${l}</div><div class="v">${v}</div></div>`;
+
+// Lazy-load a company's recent catalysts (8-K material events + news) on click.
+const catCache = {};
+async function loadCatalysts(ticker) {
+  let data = catCache[ticker];
+  if (!data) {
+    try { data = await (await fetch("/catalysts/" + encodeURIComponent(ticker))).json(); catCache[ticker] = data; }
+    catch (e) { data = { events: [], news: [], error: true }; }
+  }
+  if (!selected || selected.id !== ticker) return;        // user moved on — don't clobber
+  const box = document.getElementById("catBox");
+  if (box) box.innerHTML = catalystHtml(data);
+}
+function catalystHtml(d) {
+  const ev = d.events || [], nw = d.news || [];
+  let h = "";
+  h += `<div class="cat-hd"><span class="dot" style="background:var(--customer)"></span>Material Events <span class="n">· 8-K${ev.length ? " · " + ev.length : ""}</span></div>`;
+  if (ev.length) {
+    ev.forEach(e => {
+      const label = (e.items || []).join("; ") || "8-K filing";
+      const src = e.url ? `<a class="src-lnk" href="${e.url}" target="_blank" rel="noopener">↗ SEC</a>` : "";
+      const sum = e.summary ? `<div class="sum ev">${escapeHtml(e.summary)}</div>` : "";
+      h += `<div class="cat-item"><div class="top"><span class="dt">${e.date || ""}</span><span class="lbl">${escapeHtml(label)}</span>${src}</div>${sum}</div>`;
+    });
+  } else h += `<div class="empty">No recent 8-K filings.</div>`;
+  h += `<div class="cat-hd" style="margin-top:9px"><span class="dot" style="background:var(--semi)"></span>Recent News <span class="n">${nw.length ? "· " + nw.length : ""}</span></div>`;
+  if (nw.length) {
+    nw.forEach(a => {
+      const head = a.url ? `<a class="src-lnk" style="margin:0;color:var(--text)" href="${a.url}" target="_blank" rel="noopener">${escapeHtml(a.headline)}</a>` : escapeHtml(a.headline);
+      const prov = a.source ? `<span class="prov"> · ${escapeHtml(a.source)}</span>` : "";
+      h += `<div class="cat-item"><div class="top"><span class="dt">${a.date || ""}</span><span class="lbl news">${head}${prov}</span></div></div>`;
+    });
+  } else h += `<div class="empty">No recent news.</div>`;
+  return h;
+}
 
 function showTip(e, d) {
   tooltip.style("opacity", 1).html(

@@ -335,6 +335,22 @@ def test_tracing_helpers_never_raise():
     assert isinstance(tracing.status(), str)
 
 
+def test_catalysts_endpoint_contract():
+    # The UI's lazy catalyst panel depends on this shape (8-K events + news).
+    from fastapi.testclient import TestClient
+    from sp500_vault.api import app
+    c = TestClient(app)
+    r = c.get("/catalysts/NVDA")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ticker"] == "NVDA"
+    assert isinstance(d["events"], list) and isinstance(d["news"], list)
+    if d["events"]:
+        assert {"date", "items", "codes", "summary", "url"} <= set(d["events"][0])
+    if d["news"]:
+        assert {"date", "headline", "source", "url"} <= set(d["news"][0])
+
+
 def test_rag_session_id_stable_per_conversation():
     # Same first user message -> same session id across turns; empty history -> None.
     h1 = [{"role": "user", "content": "Who supplies NVIDIA?"},
