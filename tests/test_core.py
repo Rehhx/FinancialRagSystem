@@ -312,6 +312,40 @@ def test_sentiment_rank_ic():
 
 # ── Langfuse tracing (no-op safety + session grouping) ───────────────────────
 
+def test_relation_intent_direction():
+    from sp500_vault import rag
+    assert rag._relation_intent("Which chipmakers supply Dell's servers?") == "supplier"
+    assert rag._relation_intent("What chips does Super Micro use to build servers?") == "supplier"
+    assert rag._relation_intent("What does Apple buy from Qualcomm?") == "supplier"   # buy *from*
+    assert rag._relation_intent("Who buys networking silicon from Broadcom?") == "customer"
+    assert rag._relation_intent("Which automakers depend on NXP?") == "customer"
+    assert rag._relation_intent("Which clouds buy NVIDIA GPUs?") == "customer"        # buy X (object)
+    assert rag._relation_intent("Who are NVIDIA's main competitors?") == "competitor"
+    assert rag._relation_intent("What is NVIDIA's P/E ratio?") is None
+
+
+def test_ensure_coverage_injects_relation_neighbors():
+    """The reranker keeps the named entity's competitors but drops its chip
+    suppliers; coverage must inject the right-relation neighbors, pool-rank ordered,
+    evicting the soft (generic) slots."""
+    from sp500_vault import rag
+    from langchain_core.documents import Document
+
+    def D(t):
+        return Document(page_content=f"{t} note", metadata={"ticker": t, "section": "Relationships"})
+
+    # Candidate pool in MMR/relevance order: subject, its competitors, then suppliers.
+    pool = [D(x) for x in ["DELL", "HPE", "HPQ", "SMCI", "NVDA", "AMD", "INTC", "MU", "ORCL"]]
+    reranked = [D("DELL"), D("HPE"), D("HPQ"), D("SMCI")]      # suppliers got truncated out
+    named, rel = {"DELL"}, {"NVDA", "AMD", "INTC", "MU"}
+    soft = {"HPE", "HPQ", "SMCI", "ORCL"}
+    out = [d.metadata["ticker"] for d in rag._ensure_coverage(reranked, pool, named, rel, soft, k=4)]
+    assert len(out) == 4
+    assert "DELL" in out                                       # named subject preserved
+    assert {"NVDA", "AMD", "INTC"} <= set(out)                 # right-relation neighbors injected
+    assert "SMCI" not in out                                   # a generic/competitor slot was evicted
+
+
 def test_tracing_noop_observe_passthrough():
     from sp500_vault import tracing
     # The no-op decorator must work bare (@observe) and parameterized (@observe(name=...)).

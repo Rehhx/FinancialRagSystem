@@ -203,6 +203,21 @@ def get_edges(source: str, relation: str | None = None, resolved_only: bool = Fa
         return [dict(r) for r in conn.execute(q, params).fetchall()]
 
 
+def inbound_edges(target: str, relation: str | None = None) -> list[dict]:
+    """Reverse lookup: edges that point *at* ``target`` (who names it). Needed for
+    relation directions one side rarely discloses — a company's customers are
+    captured from the *customer's* filing ("we buy from X"), not X's own."""
+    q = "SELECT * FROM edges WHERE target_ticker = ?"
+    params: list = [target]
+    if relation:
+        q += " AND relation = ?"
+        params.append(relation)
+    q += " ORDER BY relation, confidence DESC"
+    with closing(_connect()) as conn:
+        conn.row_factory = sqlite3.Row
+        return [dict(r) for r in conn.execute(q, params).fetchall()]
+
+
 def connected_market_cap(source: str, quant_loader) -> float:
     """Sum of resolved supplier/customer/competitor market caps (connected node value)."""
     total = 0.0

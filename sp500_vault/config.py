@@ -82,12 +82,15 @@ OPENAI_ANSWER_MODEL = os.getenv("OPENAI_ANSWER_MODEL", "gpt-4o")
 # "fmp" (force FMP, fall back to yfinance on failure), or "yfinance".
 FUNDAMENTALS_SOURCE = os.getenv("FUNDAMENTALS_SOURCE", "auto")
 
-# RAG reranker: "llm" (listwise), "cross_encoder" (local; generic MiniLM hurt —
-# needs a finance-tuned model), or "none". Eval (recall@8): none 0.72 ·
-# cross_encoder/MiniLM 0.62 · llm-openai 0.78 · llm-claude 0.83 (Claude reranks
-# sharper, MRR ~1.0). The "llm" backend's model is set by RERANK_PROVIDER below —
-# independent of ANSWER_PROVIDER, so you can rerank on Claude and narrate on OpenAI.
-RERANKER = os.getenv("RERANKER", "llm")
+# RAG reranker: "none" (MMR order + coverage), "llm" (listwise Claude/OpenAI), or
+# "cross_encoder" (local MiniLM). Eval verdict EVOLVED: once relation-aware
+# COVERAGE_RERANK landed, plain MMR + coverage (none) **beats** the LLM reranker —
+# recall@8 0.95 / MRR 1.0 (deterministic, free) vs llm 0.944 / 0.856 (stochastic,
+# a Claude call per query). The reranker was approximating the relationship-aware
+# selection that coverage now does directly and better, so "none" is the default.
+# History: cross_encoder/MiniLM 0.62 and BM25 hybrid both also eval-rejected. The
+# "llm" backend's model is RERANK_PROVIDER below (kept pluggable for re-evaluation).
+RERANKER = os.getenv("RERANKER", "none")
 RERANK_PROVIDER = os.getenv("RERANK_PROVIDER", "claude")  # "claude" | "openai"
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
@@ -97,6 +100,15 @@ RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-
 # covers the relationship/semantic questions, and BM25 only injects noise the
 # reranker over-trusts. Kept as a toggle (off) for re-evaluation as the corpus grows.
 HYBRID_RETRIEVAL = os.getenv("HYBRID_RETRIEVAL", "false").lower() in ("1", "true", "yes")
+
+# Coverage-aware reranking: guarantee the entities the question is about survive
+# the top-k truncation — the named subject ("what does Tesla use?" was dropping
+# TSLA) and the asked-for relation's neighbors resolved in BOTH directions ("who
+# supplies Dell?" kept Dell's competitors but dropped its chip suppliers; "who buys
+# from Broadcom?" needs the *customers* recorded in the customers' own filings).
+# Injection is ordered by candidate-pool relevance so hubs don't flood. Eval-gated:
+# recall@8 0.80 -> 0.95 and MRR to 1.0 on the golden set (the single biggest lever).
+COVERAGE_RERANK = os.getenv("COVERAGE_RERANK", "true").lower() in ("1", "true", "yes")
 
 # SEC requires a descriptive User-Agent with contact info on every request.
 SEC_USER_AGENT = os.getenv(

@@ -401,3 +401,28 @@ follow-on is the **online** path (`RAG_SCORE_FAITHFULNESS=true` already grades l
 queries) and, later, Phoenix/RAGAS if a second eval backend is wanted; the bundled
 [`langfuse` skill](.claude/skills/langfuse) drove the build and reads results back
 via `npx langfuse-cli api scores list`.
+
+**Coverage-aware retrieval + reranker dropped (shipped — recall/MRR/faithfulness).**
+A per-question read of the eval showed the misses were *truncation*, not pool
+recall: relationship questions filled all k slots with the wrong entities and
+evicted the ones asked about — the named subject ("what does Tesla use?" dropped
+TSLA) or the wrong-relation neighbors ("who supplies Dell?" kept Dell's competitors,
+dropped its chip suppliers; "who buys from Broadcom?" returned Broadcom's *suppliers*
+instead of its *customers*). Fix = **relation-aware coverage**: a direction-aware
+intent classifier (supplier/customer/competitor, incl. "buy X" object vs "buy from
+X"), the named entity's neighbors of that relation resolved in **both** graph
+directions (`relationships.inbound_edges` reverse lookup — a company's customers are
+recorded in the customers' filings), guaranteed into the top-k and **injected in
+candidate-pool order** so hub entities (NVIDIA's many competitors) don't flood. Then
+a key finding: with coverage doing the relationship-aware selection, the **LLM
+reranker is redundant** — plain MMR + coverage scores **recall@8 0.95 / MRR 1.0
+(deterministic, free)** vs the Claude listwise reranker's 0.944 / 0.856 (stochastic,
+a Claude call per query), so `RERANKER` now defaults to `none` (joins the
+eval-rejected cross-encoder + BM25). A hardened grounding prompt (ban specifics
+absent from context, prefer under-claiming) lifted **faithfulness 0.82 → 0.88**. Net,
+fully eval-gated: **recall@8 0.894 → 0.95, MRR 0.867 → 1.0, faithfulness 0.82 → 0.88**,
+retrieval now reproducible and free of per-query rerank cost. `_relation_intent` and
+`_ensure_coverage` are pure, unit-tested functions. (A teaching moment kept honest by
+the loop: an attempted deterministic-rerank tweak — `temperature=0` — is *rejected*
+by Opus 4.x, 400 "temperature is deprecated"; the failing reranker silently fell back
+to vector order, which the eval surfaced via the rerank-error log.)

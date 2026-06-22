@@ -313,11 +313,30 @@ aggregates, that the value recomputes against an **independent reducer**
 (drift-proof vs live P/E / market cap). The run prints e.g. `graph-queries=7/7`,
 so a refactor that breaks `parse_chain`, the scope buckets, or a reducer fails
 loudly. It's the metric loop that de-risks every upgrade in
-[`RAG_ROADMAP.md`](RAG_ROADMAP.md) — and it already earned its keep on the
-**reranker**: the eval rejected a generic CPU cross-encoder (recall@8 0.67 → 0.62,
-*worse*) and justified the **LLM reranker** (Claude listwise, 0.67 → ~0.8). The
-reranker is pluggable via `RERANKER` (`llm` | `cross_encoder` | `none`); `rerank.py`.
-`pipeline eval --judge` adds Claude-graded answer faithfulness.
+[`RAG_ROADMAP.md`](RAG_ROADMAP.md). `pipeline eval --judge` adds Claude-graded
+answer faithfulness (also pushed to Langfuse as scores).
+
+**Coverage-aware retrieval (the biggest lever).** Diagnosing the eval per-question
+showed the failure mode wasn't the candidate pool — it was *truncation*: on
+relationship questions the ranker filled all *k* slots with the wrong entities and
+evicted the very ones the question was about (the named subject — "what does Tesla
+use?" dropped TSLA — or the wrong-relation neighbors — "who supplies Dell?" kept
+Dell's *competitors* but dropped its chip *suppliers*). The fix is **relation-aware
+coverage**: detect the asked-for relation (supplier / customer / competitor,
+direction-aware), resolve the named entity's neighbors of that relation in **both
+graph directions** (a company's customers live in the *customers'* filings, via a
+reverse-edge lookup), and guarantee they survive the top-*k* — injected in
+candidate-pool order so hub entities don't flood. This lifted **recall@8 0.80 → 0.95**
+and **MRR → 1.0**. A hardened grounding prompt (ban specifics absent from context)
+took **faithfulness 0.82 → 0.88**.
+
+**Eval verdict on the reranker — dropped.** Once coverage does the relationship-aware
+selection directly, the LLM reranker became redundant: **MMR order + coverage beats
+it** (recall 0.95 / MRR 1.0, deterministic, free) vs the Claude listwise reranker
+(0.944 / 0.856, stochastic, a Claude call per query). So `RERANKER` now defaults to
+`none` (kept pluggable: `llm` | `cross_encoder` | `none`). This joins the
+eval-rejected pile with the generic CPU cross-encoder (0.67 → 0.62) and BM25 hybrid —
+measurement governs, not intuition.
 
 **Performance:** quant and sentiment fetch in parallel (thread pools); relationship
 extraction is incremental (skips tickers already LLM-extracted). The **RAG index is

@@ -1,13 +1,13 @@
 {
   "as_of": "2026-06-21",
-  "run_id": "eval-20260621T223423",
+  "run_id": "eval-20260621T231436",
   "aggregate": {
     "k": 8,
     "n": 15,
-    "recall_at_k": 0.894,
-    "mrr": 0.867,
+    "recall_at_k": 0.95,
+    "mrr": 1.0,
     "hit_rate": 1.0,
-    "faithfulness": 0.82
+    "faithfulness": 0.883
   },
   "questions": [
     {
@@ -17,16 +17,19 @@
         "MU"
       ],
       "retrieved": [
-        "MU",
         "NVDA",
-        "AMZN",
-        "WDC",
-        "QCOM"
+        "HPE",
+        "MU",
+        "MCHP",
+        "INTC",
+        "AVGO",
+        "QCOM",
+        "AMD"
       ],
       "recall": 1.0,
       "rr": 1.0,
       "hit": true,
-      "faithfulness": 0.2
+      "faithfulness": 0.9
     },
     {
       "question": "What components does Apple buy from Qualcomm, Skyworks, and Qorvo?",
@@ -39,8 +42,12 @@
       "retrieved": [
         "AAPL",
         "QRVO",
+        "DIS",
         "QCOM",
-        "SWKS"
+        "GFS",
+        "AVGO",
+        "SWKS",
+        "NXPI"
       ],
       "recall": 1.0,
       "rr": 1.0,
@@ -56,17 +63,19 @@
         "AVGO"
       ],
       "retrieved": [
-        "AMD",
-        "INTC",
-        "QCOM",
+        "NVDA",
         "AVGO",
-        "ADI",
-        "GOOGL"
+        "QCOM",
+        "AMD",
+        "HPE",
+        "GOOGL",
+        "AMZN",
+        "TSLA"
       ],
       "recall": 0.75,
       "rr": 1.0,
       "hit": true,
-      "faithfulness": 0.75
+      "faithfulness": 0.6
     },
     {
       "question": "Which cloud and hyperscaler companies buy NVIDIA GPUs?",
@@ -77,17 +86,19 @@
         "GOOGL"
       ],
       "retrieved": [
-        "ORCL",
-        "MSFT",
+        "NVDA",
         "AMZN",
-        "GOOGL",
         "HPE",
-        "NVDA"
+        "GOOGL",
+        "TSLA",
+        "ORCL",
+        "DELL",
+        "SMCI"
       ],
-      "recall": 1.0,
-      "rr": 0.5,
+      "recall": 0.75,
+      "rr": 1.0,
       "hit": true,
-      "faithfulness": 0.85
+      "faithfulness": 0.6
     },
     {
       "question": "What semiconductors does Tesla use in its vehicles?",
@@ -97,17 +108,18 @@
         "NXPI"
       ],
       "retrieved": [
-        "F",
-        "NXPI",
+        "TSLA",
+        "GM",
+        "SWKS",
         "ON",
-        "QCOM",
-        "MCHP",
-        "TXN"
+        "NXPI",
+        "F",
+        "NVDA"
       ],
-      "recall": 0.667,
-      "rr": 0.5,
+      "recall": 1.0,
+      "rr": 1.0,
       "hit": true,
-      "faithfulness": 0.9
+      "faithfulness": 0.75
     },
     {
       "question": "Which chipmakers supply Dell's servers and PCs?",
@@ -119,14 +131,18 @@
       ],
       "retrieved": [
         "DELL",
+        "QCOM",
+        "WDC",
+        "SMCI",
+        "MU",
         "AMD",
         "INTC",
-        "MU"
+        "NVDA"
       ],
-      "recall": 0.75,
+      "recall": 1.0,
       "rr": 1.0,
       "hit": true,
-      "faithfulness": 1.0
+      "faithfulness": 0.95
     },
     {
       "question": "Who supplies Verizon's 5G and networking equipment?",
@@ -137,17 +153,19 @@
         "AVGO"
       ],
       "retrieved": [
-        "T",
         "VZ",
-        "CSCO",
+        "CMCSA",
         "AVGO",
+        "ANET",
         "QCOM",
-        "QRVO"
+        "T",
+        "TMUS",
+        "CSCO"
       ],
       "recall": 1.0,
-      "rr": 0.5,
+      "rr": 1.0,
       "hit": true,
-      "faithfulness": 0.5
+      "faithfulness": 0.95
     },
     {
       "question": "What does Arista Networks source from Broadcom?",
@@ -156,14 +174,19 @@
         "AVGO"
       ],
       "retrieved": [
+        "ANET",
+        "INTC",
         "CSCO",
         "AVGO",
-        "ANET"
+        "HPE",
+        "QCOM",
+        "AMD",
+        "ADI"
       ],
       "recall": 1.0,
-      "rr": 0.5,
+      "rr": 1.0,
       "hit": true,
-      "faithfulness": 1.0
+      "faithfulness": 0.95
     },
     {
       "question": "Which automakers depend on NXP Semiconductors?",
@@ -174,14 +197,15 @@
         "APTV"
       ],
       "retrieved": [
-        "GM",
-        "TSLA",
+        "NXPI",
         "APTV",
+        "TSLA",
         "BWA",
-        "F",
-        "NXPI"
+        "GM",
+        "MPWR",
+        "AMD"
       ],
-      "recall": 1.0,
+      "recall": 0.75,
       "rr": 1.0,
       "hit": true,
       "faithfulness": 0.9
@@ -196,12 +220,15 @@
       ],
       "retrieved": [
         "MSFT",
-        "HPE",
-        "STX",
+        "AVGO",
+        "SWKS",
         "NVDA",
-        "AVGO"
+        "MU",
+        "INTC",
+        "STX",
+        "AMD"
       ],
-      "recall": 0.5,
+      "recall": 1.0,
       "rr": 1.0,
       "hit": true,
       "faithfulness": 1.0
@@ -216,12 +243,15 @@
       ],
       "retrieved": [
         "SMCI",
+        "HPQ",
         "DELL",
+        "HPE",
+        "AMD",
+        "INTC",
         "NVDA",
-        "AVGO",
-        "AMD"
+        "QCOM"
       ],
-      "recall": 0.75,
+      "recall": 1.0,
       "rr": 1.0,
       "hit": true,
       "faithfulness": 0.95
@@ -234,10 +264,14 @@
         "CSCO"
       ],
       "retrieved": [
+        "AVGO",
         "CSCO",
         "ANET",
-        "AVGO",
-        "AAPL"
+        "HPE",
+        "AAPL",
+        "VZ",
+        "T",
+        "CMCSA"
       ],
       "recall": 1.0,
       "rr": 1.0,
@@ -252,18 +286,19 @@
         "ON"
       ],
       "retrieved": [
-        "F",
-        "GM",
-        "APTV",
-        "TSLA",
-        "BWA",
+        "QCOM",
         "ON",
-        "QCOM"
+        "TSLA",
+        "GM",
+        "GFS",
+        "F",
+        "BWA",
+        "NXPI"
       ],
       "recall": 1.0,
       "rr": 1.0,
       "hit": true,
-      "faithfulness": 0.3
+      "faithfulness": 0.7
     },
     {
       "question": "Which company is the most systemically central in the chip supply chain?",
@@ -300,7 +335,7 @@
       "recall": 1.0,
       "rr": 1.0,
       "hit": true,
-      "faithfulness": 0.95
+      "faithfulness": 1.0
     }
   ],
   "graph_queries": {

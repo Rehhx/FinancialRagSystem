@@ -322,14 +322,9 @@ def _rrf_fuse(dense: list[Document], sparse: list[Document], c: int = 60) -> lis
     return [pool[k] for k in sorted(score, key=lambda k: score[k], reverse=True)]
 
 
-def _graph_expand(question: str) -> set[str]:
-    """Tickers named in the question, expanded to their modeled neighbors.
-
-    This is what makes the RAG relationship-aware: ask about NVIDIA and we also
-    pull its suppliers'/customers'/competitors' notes into context, so the model
-    can reason about connected exposure instead of only NVIDIA's own chunk.
-    """
-    from .relationships import get_edges
+def _named_tickers(question: str) -> set[str]:
+    """Tickers the question explicitly names (by ticker or company name). These are
+    the highest-precision relevance signal — the question is literally about them."""
     from .universe import BY_TICKER, TICKERS
 
     text = " " + question.upper() + " "
@@ -341,12 +336,133 @@ def _graph_expand(question: str) -> set[str]:
         core = c.name.split(",")[0].split(" ")[0].upper()
         if len(core) >= 4 and f" {core}" in text:
             found.add(t)
+    return found
+
+
+def _graph_expand(question: str) -> set[str]:
+    """Tickers named in the question, expanded to their modeled neighbors.
+
+    This is what makes the RAG relationship-aware: ask about NVIDIA and we also
+    pull its suppliers'/customers'/competitors' notes into context, so the model
+    can reason about connected exposure instead of only NVIDIA's own chunk.
+    """
+    from .relationships import get_edges
+
+    found = _named_tickers(question)
     expanded = set(found)
     for t in found:
         for e in get_edges(t, resolved_only=True):
             if e.get("target_ticker"):
                 expanded.add(e["target_ticker"])
     return expanded
+
+
+# Direction-aware relation intent: which relationship of the named entity the
+# question asks for. Checked in order — competitor, then customer, then supplier.
+_COMPETITOR_CUES = ("competitor", "rival", "compete")
+_CUSTOMER_CUES = ("who buys", "buyers", "customers of", "'s customers", "depend on",
+                  "depends on", "rely on", "relies on", "sells to", "sell to")
+_SUPPLIER_CUES = ("supplier", "supplies", "supply", "supplied", "source from", "sources from",
+                  "provided by", "provides", "vendor", "uses", " use ", "components",
+                  "buy from", "buys from", "made by", "built with")
+
+
+def _relation_intent(question: str) -> str | None:
+    q = " " + question.lower() + " "
+    if any(c in q for c in _COMPETITOR_CUES):
+        return "competitor"
+    if any(c in q for c in _CUSTOMER_CUES):
+        return "customer"
+    # "buy/purchase X" with the named entity as the *object* and no "from" → the
+    # buyers are X's customers ("which clouds buy NVIDIA GPUs"). "buy *from* X" is
+    # the supplier side and is handled below.
+    if (" buy " in q or " buys " in q or " buying " in q or "purchase" in q) and " from " not in q:
+        return "customer"
+    if any(c in q for c in _SUPPLIER_CUES):
+        return "supplier"
+    return None
+
+
+def _relation_neighbors(named: set[str], intent: str | None) -> set[str]:
+    """The named entities' neighbors of the asked-for relation, resolved in BOTH
+    directions (a company's customers are recorded in the customers' own filings).
+    These are the highest-precision recall targets for relationship questions."""
+    if not intent or not named:
+        return set()
+    from .relationships import get_edges, inbound_edges
+    # (outgoing relation, inbound relation) that both denote `intent` of X. For
+    # supplier/customer the reverse edge is essential (a company's customers are
+    # recorded in the customers' filings). For the symmetric *competitor* relation
+    # the inbound side is everyone who name-drops X (noisy on hubs), so we trust only
+    # X's own self-stated competitors — which are the "main" ones the question wants.
+    pairs = {"supplier": ("supplier", "customer"),
+             "customer": ("customer", "supplier"),
+             "competitor": ("competitor", None)}[intent]
+    out: set[str] = set()
+    for t in named:
+        for e in get_edges(t, relation=pairs[0], resolved_only=True):
+            if e.get("target_ticker"):
+                out.add(e["target_ticker"])
+        if pairs[1] is not None:
+            for e in inbound_edges(t, relation=pairs[1]):
+                if e.get("source"):
+                    out.add(e["source"])
+    return out - named
+
+
+def _ensure_coverage(reranked: list, pool: list, named: set[str], rel: set[str],
+                     soft: set[str], k: int) -> list:
+    """Guarantee the question's focus entities survive the rerank truncation.
+
+    The reranker fills all k slots by semantic score, which on relationship
+    questions evicts the very entities the question is about — the named subject
+    ("what does Tesla use?" dropping TSLA) or the right-relation neighbors ("who
+    supplies Dell?" keeping Dell's competitors but dropping its chip suppliers).
+
+    Three tiers, injected in that order: ``named`` (always) → ``rel`` (the asked-for
+    relation's neighbors, guaranteed, may bump a ``soft`` slot) → ``soft`` (generic
+    neighbors, best-effort, only into a free non-focus/duplicate slot). Within each
+    tier we inject in **candidate-pool order** so when an entity has many relation
+    neighbors (a hub like NVIDIA's competitors), the ones semantic retrieval also
+    ranked high win the slots — not an arbitrary subset.
+    """
+    result = list(reranked[:k])
+    best: dict[str, object] = {}            # best (highest-ranked) pool chunk per ticker
+    rank: dict[str, int] = {}               # first appearance in the pool = relevance proxy
+    for i, d in enumerate(pool):
+        t = d.metadata.get("ticker")
+        if t and t not in best:
+            best[t], rank[t] = d, i
+    priority = named | rel
+    focus = priority | soft
+
+    def evict_index(allow_soft_evict: bool):
+        present = [d.metadata.get("ticker") for d in result]
+        counts = Counter(present)
+        for i in range(len(result) - 1, -1, -1):        # non-focus or duplicate, lowest rank first
+            t = present[i]
+            if t not in focus or counts[t] > 1:
+                return i
+        if allow_soft_evict:                             # a priority ticker may bump a soft neighbor
+            for i in range(len(result) - 1, -1, -1):
+                t = present[i]
+                if t in soft and t not in priority:
+                    return i
+        return None
+
+    def by_rank(ts):
+        return sorted(ts, key=lambda t: rank.get(t, 10 ** 6))
+
+    ordered = [(t, True) for t in by_rank(named)] \
+        + [(t, True) for t in by_rank(rel - named)] \
+        + [(t, False) for t in by_rank(soft - priority)]
+    for t, is_priority in ordered:
+        if t not in best or any(d.metadata.get("ticker") == t for d in result):
+            continue
+        idx = evict_index(allow_soft_evict=is_priority)
+        if idx is not None:
+            result[idx] = best[t]
+    return result
 
 
 def retrieve(question: str, k: int = 6, ticker=None, sector=None, sentiment=None) -> list:
@@ -368,7 +484,9 @@ def retrieve(question: str, k: int = 6, ticker=None, sector=None, sentiment=None
     vs = _vectorstore()
     where = _build_where(ticker, sector, sentiment)
     reranking = config.RERANKER != "none"
-    pool_k = max(24, k * 4) if reranking else k
+    # Always fetch a wide pool: coverage-aware selection needs the candidates even
+    # when the LLM reranker is off (MMR order + coverage is itself a strong ranker).
+    pool_k = max(24, k * 4)
 
     # 1) Diversified semantic retrieval — MMR drops near-duplicate chunks.
     try:
@@ -385,10 +503,16 @@ def retrieve(question: str, k: int = 6, ticker=None, sector=None, sentiment=None
         docs = docs + [d for d in _bm25_docs(question, pool_k) if _doc_key(d) not in have]
     seen = {(d.metadata.get("ticker"), d.metadata.get("section")) for d in docs}
 
-    # 2) Graph-aware expansion — pull chunks for named tickers + their neighbors
-    #    (skipped when the caller already pinned a metadata filter).
+    # 2) Graph-aware expansion — pull chunks for named tickers + their neighbors,
+    #    plus the asked-for relation's neighbors resolved in BOTH directions (a
+    #    company's customers live in the customers' filings). Skipped under a filter.
+    focus: set[str] = set()
+    named: set[str] = set()
+    rel: set[str] = set()
     if not where:
-        focus = _graph_expand(question)
+        named = _named_tickers(question)
+        rel = _relation_neighbors(named, _relation_intent(question))
+        focus = _graph_expand(question) | named | rel
         if focus:
             present = {d.metadata.get("ticker") for d in docs}
             missing = [t for t in focus if t not in present]
@@ -406,10 +530,13 @@ def retrieve(question: str, k: int = 6, ticker=None, sector=None, sentiment=None
                         covered.add(t)
                         docs.append(d)
 
-    # 3) Rerank the candidate pool and keep the top-k (cross-encoder >> vector order).
-    if reranking:
-        docs = rerank.rerank(question, docs, k)
-    return docs[:k]
+    # 3) Optional LLM rerank, then guarantee the named entities + right-relation
+    #    neighbors survive the top-k truncation. Coverage applies either way — on
+    #    this corpus MMR order + coverage matches/beats the LLM reranker (eval-gated).
+    ranked = rerank.rerank(question, docs, k) if reranking else docs[:k]
+    if config.COVERAGE_RERANK and focus:
+        ranked = _ensure_coverage(ranked, docs, named, rel, focus - named - rel, k)
+    return ranked[:k]
 
 
 def _contexts(docs) -> list[str]:
