@@ -58,6 +58,12 @@ if LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY:
     os.environ.setdefault("LANGFUSE_HOST", LANGFUSE_HOST)
 TRACING_ENABLED = bool(LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY)
 
+# Online eval: grade answer faithfulness on every LIVE rag query and attach it as a
+# Langfuse score. Off by default — it costs one judge LLM call per query. The eval
+# harness (`pipeline eval --judge`) scores faithfulness offline on the golden set
+# regardless of this flag.
+RAG_SCORE_FAITHFULNESS = os.getenv("RAG_SCORE_FAITHFULNESS", "false").lower() in ("1", "true", "yes")
+
 # ── Models / tunables ────────────────────────────────────────────────────────
 # Default to the most capable Claude model; override with ANTHROPIC_MODEL.
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-8")

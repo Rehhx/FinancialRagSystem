@@ -1,11 +1,13 @@
 {
   "as_of": "2026-06-21",
+  "run_id": "eval-20260621T223423",
   "aggregate": {
     "k": 8,
     "n": 15,
-    "recall_at_k": 0.861,
-    "mrr": 0.856,
-    "hit_rate": 1.0
+    "recall_at_k": 0.894,
+    "mrr": 0.867,
+    "hit_rate": 1.0,
+    "faithfulness": 0.82
   },
   "questions": [
     {
@@ -16,14 +18,15 @@
       ],
       "retrieved": [
         "MU",
-        "AMZN",
         "NVDA",
-        "GOOGL",
-        "TSLA"
+        "AMZN",
+        "WDC",
+        "QCOM"
       ],
       "recall": 1.0,
       "rr": 1.0,
-      "hit": true
+      "hit": true,
+      "faithfulness": 0.2
     },
     {
       "question": "What components does Apple buy from Qualcomm, Skyworks, and Qorvo?",
@@ -41,7 +44,8 @@
       ],
       "recall": 1.0,
       "rr": 1.0,
-      "hit": true
+      "hit": true,
+      "faithfulness": 1.0
     },
     {
       "question": "Who are NVIDIA's main competitors?",
@@ -57,12 +61,12 @@
         "QCOM",
         "AVGO",
         "ADI",
-        "GOOGL",
-        "TSLA"
+        "GOOGL"
       ],
       "recall": 0.75,
       "rr": 1.0,
-      "hit": true
+      "hit": true,
+      "faithfulness": 0.75
     },
     {
       "question": "Which cloud and hyperscaler companies buy NVIDIA GPUs?",
@@ -75,15 +79,15 @@
       "retrieved": [
         "ORCL",
         "MSFT",
-        "HPE",
         "AMZN",
         "GOOGL",
-        "DELL",
-        "SMCI"
+        "HPE",
+        "NVDA"
       ],
-      "recall": 0.75,
+      "recall": 1.0,
       "rr": 0.5,
-      "hit": true
+      "hit": true,
+      "faithfulness": 0.85
     },
     {
       "question": "What semiconductors does Tesla use in its vehicles?",
@@ -93,14 +97,17 @@
         "NXPI"
       ],
       "retrieved": [
-        "TSLA",
-        "ADI",
+        "F",
+        "NXPI",
         "ON",
-        "NXPI"
+        "QCOM",
+        "MCHP",
+        "TXN"
       ],
-      "recall": 1.0,
-      "rr": 1.0,
-      "hit": true
+      "recall": 0.667,
+      "rr": 0.5,
+      "hit": true,
+      "faithfulness": 0.9
     },
     {
       "question": "Which chipmakers supply Dell's servers and PCs?",
@@ -111,15 +118,15 @@
         "NVDA"
       ],
       "retrieved": [
-        "SMCI",
-        "HPQ",
+        "DELL",
         "AMD",
         "INTC",
-        "DELL"
+        "MU"
       ],
       "recall": 0.75,
-      "rr": 0.333,
-      "hit": true
+      "rr": 1.0,
+      "hit": true,
+      "faithfulness": 1.0
     },
     {
       "question": "Who supplies Verizon's 5G and networking equipment?",
@@ -131,14 +138,16 @@
       ],
       "retrieved": [
         "T",
+        "VZ",
         "CSCO",
-        "QCOM",
         "AVGO",
-        "VZ"
+        "QCOM",
+        "QRVO"
       ],
       "recall": 1.0,
       "rr": 0.5,
-      "hit": true
+      "hit": true,
+      "faithfulness": 0.5
     },
     {
       "question": "What does Arista Networks source from Broadcom?",
@@ -149,12 +158,12 @@
       "retrieved": [
         "CSCO",
         "AVGO",
-        "ANET",
-        "NVDA"
+        "ANET"
       ],
       "recall": 1.0,
       "rr": 0.5,
-      "hit": true
+      "hit": true,
+      "faithfulness": 1.0
     },
     {
       "question": "Which automakers depend on NXP Semiconductors?",
@@ -169,12 +178,13 @@
         "TSLA",
         "APTV",
         "BWA",
-        "NXPI",
-        "F"
+        "F",
+        "NXPI"
       ],
       "recall": 1.0,
       "rr": 1.0,
-      "hit": true
+      "hit": true,
+      "faithfulness": 0.9
     },
     {
       "question": "Which companies supply Microsoft's data centers?",
@@ -186,13 +196,15 @@
       ],
       "retrieved": [
         "MSFT",
-        "STX",
         "HPE",
-        "ORCL"
+        "STX",
+        "NVDA",
+        "AVGO"
       ],
-      "recall": 0.25,
+      "recall": 0.5,
       "rr": 1.0,
-      "hit": true
+      "hit": true,
+      "faithfulness": 1.0
     },
     {
       "question": "What chips does Super Micro use to build AI servers?",
@@ -204,12 +216,15 @@
       ],
       "retrieved": [
         "SMCI",
+        "DELL",
         "NVDA",
+        "AVGO",
         "AMD"
       ],
       "recall": 0.75,
       "rr": 1.0,
-      "hit": true
+      "hit": true,
+      "faithfulness": 0.95
     },
     {
       "question": "Who buys networking silicon from Broadcom?",
@@ -226,7 +241,8 @@
       ],
       "recall": 1.0,
       "rr": 1.0,
-      "hit": true
+      "hit": true,
+      "faithfulness": 1.0
     },
     {
       "question": "What does Ford buy from Qualcomm and ON Semiconductor?",
@@ -239,13 +255,15 @@
         "F",
         "GM",
         "APTV",
-        "BWA",
         "TSLA",
-        "ON"
+        "BWA",
+        "ON",
+        "QCOM"
       ],
-      "recall": 0.667,
+      "recall": 1.0,
       "rr": 1.0,
-      "hit": true
+      "hit": true,
+      "faithfulness": 0.3
     },
     {
       "question": "Which company is the most systemically central in the chip supply chain?",
@@ -264,7 +282,8 @@
       ],
       "recall": 1.0,
       "rr": 1.0,
-      "hit": true
+      "hit": true,
+      "faithfulness": 1.0
     },
     {
       "question": "Which memory and storage makers have the most bullish sentiment?",
@@ -280,7 +299,8 @@
       ],
       "recall": 1.0,
       "rr": 1.0,
-      "hit": true
+      "hit": true,
+      "faithfulness": 0.95
     }
   ],
   "graph_queries": {

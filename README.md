@@ -90,6 +90,15 @@ The CLI flushes on exit; the API flushes on shutdown. The bundled
 [`langfuse` skill](.claude/skills/langfuse) (from `github.com/langfuse/skills`) was
 used to build this and can query traces via `npx langfuse-cli api traces list`.
 
+**Eval results are scored into Langfuse, too.** `pipeline eval --judge` turns each
+golden question into an `eval-question` trace carrying `recall_at_k`,
+`reciprocal_rank`, `hit`, and (with `--judge`) `faithfulness` scores; the graph-query
+guards emit a `graph_query_pass` boolean; and the run's aggregates (recall@k, MRR,
+hit-rate, faithfulness, graph-query pass-rate) attach to a per-run **session**, so
+quality is **trended over time** in the Langfuse dashboard. Optionally set
+`RAG_SCORE_FAITHFULNESS=true` to also grade and score faithfulness on every *live*
+query (online eval; off by default — it costs one judge call per query).
+
 ```bash
 .venv/Scripts/python.exe -m pip install -r requirements.txt
 ```

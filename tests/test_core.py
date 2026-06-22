@@ -328,9 +328,12 @@ def test_tracing_noop_observe_passthrough():
 
 def test_tracing_helpers_never_raise():
     from sp500_vault import tracing
-    # update_span/update_trace/flush must be safe to call regardless of state.
+    # update_span/update_trace/score/flush must be safe to call regardless of state.
     tracing.update_span(input={"a": 1})
     tracing.update_trace(output="ok")
+    tracing.score("recall_at_k", 0.88, "NUMERIC")
+    tracing.score("hit", True, "BOOLEAN", comment="x")
+    tracing.score_session("eval-test", "mrr", 0.95, "NUMERIC")
     tracing.flush()
     assert isinstance(tracing.status(), str)
 

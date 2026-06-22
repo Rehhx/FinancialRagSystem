@@ -382,3 +382,22 @@ questions. Each filing is summarized **once, ever** (cached by accession in
 `data/filings/summaries.json`), so the cost is small, bounded, and one-time; the
 body extractor, high-signal filter, and cache reuse are pure, unit-tested functions
 (`EDGAR_8K_SUMMARIZE` toggles it off).
+
+**Langfuse tracing + eval scores (shipped — closes the 3.4 observability item).**
+LLM calls are traced to **Langfuse** via framework integrations (OpenAI drop-in +
+the OTel `AnthropicInstrumentor`), so model/token/cost are captured automatically;
+`@observe` adds named parent traces (`rag-query`, `sentiment-score`,
+`relationship-extract`, `filing-8k-summary`) with multi-turn chats grouped by
+`session_id` and explicit trace input so large filing text never leaks. Tracing is
+optional and **no-ops** when keys are absent (`sp500_vault/tracing.py`). The **eval
+harness now scores into Langfuse**: `pipeline eval --judge` makes each golden
+question an `eval-question` trace with `recall_at_k` / `reciprocal_rank` / `hit` /
+`faithfulness` scores, the graph-query guards emit a `graph_query_pass` boolean, and
+the run aggregates (recall@k, MRR, hit-rate, faithfulness, graph-query pass-rate)
+attach to a per-run **session** — so retrieval/answer quality is **trended over time
+and gateable**, not just printed once. Verified live (recall@8 0.894, MRR 0.867,
+faithfulness 0.82, graph-queries 10/10 → Langfuse scores). The matching free
+follow-on is the **online** path (`RAG_SCORE_FAITHFULNESS=true` already grades live
+queries) and, later, Phoenix/RAGAS if a second eval backend is wanted; the bundled
+[`langfuse` skill](.claude/skills/langfuse) drove the build and reads results back
+via `npx langfuse-cli api scores list`.

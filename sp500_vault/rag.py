@@ -443,6 +443,13 @@ def query(question: str, k: int = 6, ticker=None, sector=None, sentiment=None,
     if history and search_q != question:
         out["resolved_question"] = search_q   # surfaced so the UI can show what was searched
     tracing.update_trace(output=answer)
+    # Optional online eval: grade faithfulness of the live answer and score the trace.
+    if config.RAG_SCORE_FAITHFULNESS:
+        try:
+            f = llm.grade_faithfulness(question, answer, _contexts(docs))
+            tracing.score("faithfulness", f["score"], "NUMERIC", comment=f.get("verdict"))
+        except Exception:  # noqa: BLE001 - scoring must never break the answer
+            pass
     return out
 
 

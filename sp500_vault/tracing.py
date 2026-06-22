@@ -96,6 +96,39 @@ def update_trace(**kwargs: Any) -> None:
             pass
 
 
+def score(name: str, value, data_type: str | None = None, comment: str | None = None) -> None:
+    """Attach a score to the *current* trace (e.g. recall/faithfulness on an
+    eval-question trace). Best-effort; no-op when tracing is off."""
+    if not (ENABLED and _client is not None):
+        return
+    kw: dict[str, Any] = {"name": name, "value": value}
+    if data_type:
+        kw["data_type"] = data_type
+    if comment:
+        kw["comment"] = comment
+    try:
+        _client.score_current_trace(**kw)
+    except Exception:                           # noqa: BLE001
+        pass
+
+
+def score_session(session_id: str, name: str, value, data_type: str | None = None,
+                  comment: str | None = None) -> None:
+    """Attach a run-level aggregate score to a whole session (e.g. an eval run's
+    mean recall@k). Best-effort; no-op when tracing is off."""
+    if not (ENABLED and _client is not None):
+        return
+    kw: dict[str, Any] = {"name": name, "value": value, "session_id": session_id}
+    if data_type:
+        kw["data_type"] = data_type
+    if comment:
+        kw["comment"] = comment
+    try:
+        _client.create_score(**kw)
+    except Exception:                           # noqa: BLE001
+        pass
+
+
 def flush() -> None:
     """Send any buffered events — call before a short-lived process exits."""
     if ENABLED and _client is not None:

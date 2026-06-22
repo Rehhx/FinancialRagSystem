@@ -23,7 +23,8 @@ import math
 import operator
 import statistics
 
-from . import config, graph_qa, llm, rag
+from . import config, graph_qa, llm, rag, tracing
+from .tracing import observe
 
 _REF_OPS = {"gt": operator.gt, "ge": operator.ge, "lt": operator.lt, "le": operator.le}
 
@@ -119,12 +120,22 @@ def _check_graph_query(gq: dict, nodes: list) -> dict:
     return {"question": q, "type": gq.get("type"), "ok": ok, "detail": "; ".join(bits)}
 
 
-def _eval_graph_queries(data: dict) -> dict:
+@observe(name="eval-graph-query")
+def _scored_graph_check(gq: dict, nodes: list, run_id: str) -> dict:
+    """Run a graph-query guard and emit a pass/fail boolean score to Langfuse."""
+    r = _check_graph_query(gq, nodes)
+    tracing.update_trace(input=gq["question"], session_id=run_id, tags=["eval", "graph-query"],
+                         metadata={"type": r.get("type"), "detail": r.get("detail")})
+    tracing.score("graph_query_pass", bool(r["ok"]), "BOOLEAN", comment=r.get("detail") or None)
+    return r
+
+
+def _eval_graph_queries(data: dict, run_id: str) -> dict:
     gqs = data.get("graph_queries", [])
     if not gqs:
         return {}
     nodes = graph_qa._load_nodes()
-    rows = [_check_graph_query(gq, nodes) for gq in gqs]
+    rows = [_scored_graph_check(gq, nodes, run_id) for gq in gqs]
     passed = sum(1 for r in rows if r["ok"])
     print(f"\n[eval] graph-query regression guards — {passed}/{len(rows)} exact "
           f"(set algebra + aggregate value consistency):")
@@ -135,31 +146,48 @@ def _eval_graph_queries(data: dict) -> dict:
     return {"n": len(rows), "passed": passed, "checks": rows}
 
 
+@observe(name="eval-question")
+def _score_question(q: dict, k: int, judge: bool, run_id: str) -> dict:
+    """Evaluate one golden question and emit its scores to Langfuse (recall@k,
+    reciprocal rank, hit, and — when judged — answer faithfulness)."""
+    tracing.update_trace(input=q["question"], session_id=run_id, tags=["eval"],
+                         metadata={"expected": q["expected_tickers"], "k": k})
+    docs = rag.retrieve(q["question"], k=k)
+    got = _retrieved_tickers(docs)
+    recall, rr, hits = _recall_mrr(q["expected_tickers"], got)
+    row = {
+        "question": q["question"],
+        "expected": q["expected_tickers"],
+        "retrieved": got[:8],
+        "recall": round(recall, 3),
+        "rr": round(rr, 3),
+        "hit": bool(hits),
+    }
+    tracing.score("recall_at_k", recall, "NUMERIC")
+    tracing.score("reciprocal_rank", rr, "NUMERIC")
+    tracing.score("hit", bool(hits), "BOOLEAN")
+    if judge:
+        answer = llm.rag_answer(q["question"], rag._contexts(docs))
+        row["faithfulness"] = llm.grade_faithfulness(q["question"], answer, rag._contexts(docs))["score"]
+        tracing.score("faithfulness", row["faithfulness"], "NUMERIC")
+        tracing.update_trace(output=answer)
+    return row
+
+
 def run(k: int = 8, judge: bool = False) -> dict:
     data = json.loads(_GOLDEN.read_text(encoding="utf-8"))
     questions = data["questions"]
+    run_id = "eval-" + dt.datetime.now().strftime("%Y%m%dT%H%M%S")
     print(f"[eval] running {len(questions)} golden questions (k={k}"
-          f"{', + LLM faithfulness judge' if judge else ''})…\n")
+          f"{', + LLM faithfulness judge' if judge else ''})"
+          f"{'  [tracing -> Langfuse]' if tracing.ENABLED else ''}…\n")
 
     rows = []
     for q in questions:
-        docs = rag.retrieve(q["question"], k=k)
-        got = _retrieved_tickers(docs)
-        recall, rr, hits = _recall_mrr(q["expected_tickers"], got)
-        row = {
-            "question": q["question"],
-            "expected": q["expected_tickers"],
-            "retrieved": got[:8],
-            "recall": round(recall, 3),
-            "rr": round(rr, 3),
-            "hit": bool(hits),
-        }
-        if judge:
-            answer = llm.rag_answer(q["question"], rag._contexts(docs))
-            row["faithfulness"] = llm.grade_faithfulness(q["question"], answer, rag._contexts(docs))["score"]
+        row = _score_question(q, k, judge, run_id)
         rows.append(row)
-        flag = "✓" if recall == 1 else ("·" if row["hit"] else "✗")
-        print(f"  {flag} recall {recall:.2f}  mrr {rr:.2f}  | {q['question'][:54]}")
+        flag = "✓" if row["recall"] == 1 else ("·" if row["hit"] else "✗")
+        print(f"  {flag} recall {row['recall']:.2f}  mrr {row['rr']:.2f}  | {q['question'][:54]}")
 
     n = len(rows)
     agg = {
@@ -172,9 +200,21 @@ def run(k: int = 8, judge: bool = False) -> dict:
         fs = [r["faithfulness"] for r in rows if r.get("faithfulness") is not None]
         agg["faithfulness"] = round(sum(fs) / len(fs), 3) if fs else None
 
-    graph_q = _eval_graph_queries(data)
+    graph_q = _eval_graph_queries(data, run_id)
 
-    report = {"as_of": dt.date.today().isoformat(), "aggregate": agg,
+    # Run-level aggregates → session scores, so each eval run is one Langfuse
+    # session you can trend over time.
+    tracing.score_session(run_id, "recall_at_k", agg["recall_at_k"], "NUMERIC")
+    tracing.score_session(run_id, "mrr", agg["mrr"], "NUMERIC")
+    tracing.score_session(run_id, "hit_rate", agg["hit_rate"], "NUMERIC")
+    if judge and agg.get("faithfulness") is not None:
+        tracing.score_session(run_id, "faithfulness", agg["faithfulness"], "NUMERIC")
+    if graph_q:
+        tracing.score_session(run_id, "graph_query_pass_rate",
+                              round(graph_q["passed"] / graph_q["n"], 3), "NUMERIC")
+    tracing.flush()   # short-lived run — make sure scores are sent
+
+    report = {"as_of": dt.date.today().isoformat(), "run_id": run_id, "aggregate": agg,
               "questions": rows, "graph_queries": graph_q}
     _REPORT.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
