@@ -14,10 +14,16 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import backtest, config, graph_export, rag
+from . import backtest, config, graph_export, rag, tracing
 from .universe import PILOT_UNIVERSE, TICKERS
 
 app = FastAPI(title="S&P 500 RAG Vault", version="0.3.0")
+
+
+@app.on_event("shutdown")
+def _flush_traces() -> None:
+    """Flush any buffered Langfuse events when the server stops."""
+    tracing.flush()
 
 _WEB_DIR = Path(__file__).resolve().parent / "web"
 _GRAPH_FILE = config.DATA_DIR / "graph" / "graph.json"

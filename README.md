@@ -49,6 +49,7 @@ Ingestion ──► Processing ──► Vault (markdown + [[links]]) ──► 
 | Graph export | `graph_export.py` | `data/graph/graph.json` (for future web viz) |
 | Scheduler | `scheduler.py` | per-layer cadence refresh (Phase 7) |
 | Query API | `api.py` | FastAPI `/query` |
+| Tracing | `tracing.py` (optional Langfuse: OpenAI drop-in + Anthropic OTel instrumentor) | Langfuse traces (when keys set) |
 
 ## Setup
 
@@ -73,6 +74,21 @@ default; set `ANSWER_PROVIDER=openai` (with `OPENAI_ANSWER_MODEL`, default
 answers are still computed in Python and semantic answers still summarize the same
 retrieved chunks — so pick by cost/credits. (Relationship extraction and sentiment
 always use Claude's structured outputs.)
+
+**Observability is pluggable too (Langfuse).** LLM calls are traced to
+[Langfuse](https://langfuse.com) when `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY`
+are set in `.env` (region via `LANGFUSE_HOST`, default US cloud); absent keys →
+tracing **no-ops** and the app runs unchanged. Following Langfuse best practices,
+instrumentation is via **framework integrations, not hand-rolled wrappers**:
+OpenAI through the drop-in client and Anthropic through the OpenTelemetry
+`AnthropicInstrumentor`, so model name, **token usage, and cost** are captured
+automatically. `@observe` adds descriptively-named parent traces (`rag-query`,
+`sentiment-score`, `relationship-extract`, `filing-8k-summary`) with the nested
+generations underneath; multi-turn chats are grouped by `session_id`, and trace
+input is set explicitly so large filing text / config args never leak into the UI.
+The CLI flushes on exit; the API flushes on shutdown. The bundled
+[`langfuse` skill](.claude/skills/langfuse) (from `github.com/langfuse/skills`) was
+used to build this and can query traces via `npx langfuse-cli api traces list`.
 
 ```bash
 .venv/Scripts/python.exe -m pip install -r requirements.txt

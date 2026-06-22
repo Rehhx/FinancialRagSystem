@@ -14,7 +14,8 @@ from typing import Any
 import anthropic
 from openai import OpenAI
 
-from . import config
+from . import config, tracing
+from .tracing import observe
 
 # ── Clients (lazy singletons) ────────────────────────────────────────────────
 
@@ -22,13 +23,15 @@ from . import config
 @lru_cache(maxsize=1)
 def anthropic_client() -> anthropic.Anthropic:
     config.require("ANTHROPIC_API_KEY")
+    tracing.instrument_anthropic()   # auto-traces every messages.create / stream when enabled
     return anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
 
 @lru_cache(maxsize=1)
 def openai_client() -> OpenAI:
     config.require("OPENAI_API_KEY")
-    return OpenAI(api_key=config.OPENAI_API_KEY)
+    # The Langfuse drop-in (when tracing is on) auto-traces chat + embeddings.
+    return tracing.openai_class(OpenAI)(api_key=config.OPENAI_API_KEY)
 
 
 def _first_text(message: anthropic.types.Message) -> str:
@@ -85,10 +88,15 @@ _RELATIONSHIP_SYSTEM = (
 )
 
 
+@observe(name="relationship-extract")
 def extract_relationships(source_ticker: str, source_name: str, business_text: str) -> list[dict]:
     """Extract supplier/customer/competitor edges from a 10-K Business section."""
     if not business_text.strip():
         return []
+    # Explicit, compact trace input — don't dump the 45K-char filing as the input.
+    tracing.update_span(input={"ticker": source_ticker, "name": source_name,
+                               "business_chars": len(business_text)},
+                        metadata={"feature": "relationship-extraction"})
     user = (
         f"Filer: {source_name} ({source_ticker}).\n"
         f"Below is the 'Business' section (Item 1) of its latest 10-K. Extract every "
@@ -132,10 +140,13 @@ _SENTIMENT_SYSTEM = (
 )
 
 
+@observe(name="sentiment-score")
 def score_sentiment(ticker: str, name: str, headlines: list[str]) -> dict:
     """Score sentiment for a company from recent headlines/snippets."""
     if not headlines:
         return {"score": 0.0, "label": "Neutral", "summary": "No recent news available."}
+    tracing.update_span(input={"ticker": ticker, "name": name, "headlines": len(headlines)},
+                        metadata={"feature": "sentiment"})
     joined = "\n".join(f"- {h}" for h in headlines)
     user = f"Company: {name} ({ticker}).\nRecent news:\n{joined}"
     msg = anthropic_client().messages.create(
@@ -178,10 +189,13 @@ _8K_SUMMARY_SYSTEM = (
 )
 
 
+@observe(name="filing-8k-summary")
 def summarize_8k(ticker: str, item_labels: str, body_text: str) -> str:
     """One-line 'what happened' summary of a high-signal 8-K from its body text."""
     if not body_text.strip():
         return ""
+    tracing.update_span(input={"ticker": ticker, "items": item_labels, "body_chars": len(body_text)},
+                        metadata={"feature": "8k-summary"})
     user = (f"Filer: {ticker}. 8-K item(s): {item_labels}.\n\n"
             f"=== 8-K BODY ===\n{body_text}")
     msg = anthropic_client().messages.create(
@@ -249,6 +263,7 @@ def _rag_answer_openai(question: str, contexts: list[str], history=None) -> str:
     resp = openai_client().chat.completions.create(
         model=config.OPENAI_ANSWER_MODEL,
         max_tokens=2000,
+        name="rag-answer",          # readable generation name in Langfuse
         messages=[
             {"role": "system", "content": _RAG_SYSTEM},
             {"role": "user", "content": _rag_user_prompt(question, contexts, history)},
@@ -278,7 +293,7 @@ def condense_question(history: list[dict] | None, question: str) -> str:
     try:
         if config.ANSWER_PROVIDER.lower() == "openai":
             resp = openai_client().chat.completions.create(
-                model=config.OPENAI_ANSWER_MODEL, max_tokens=120,
+                model=config.OPENAI_ANSWER_MODEL, max_tokens=120, name="condense-question",
                 messages=[{"role": "system", "content": _CONDENSE_SYSTEM},
                           {"role": "user", "content": user}])
             out = (resp.choices[0].message.content or "").strip()
@@ -317,8 +332,10 @@ _FAITH_SCHEMA: dict[str, Any] = {
 }
 
 
+@observe(name="faithfulness-judge")
 def grade_faithfulness(question: str, answer: str, contexts: list[str]) -> dict:
     """LLM-as-judge: how well is the answer grounded ONLY in the retrieved context?"""
+    tracing.update_span(input={"question": question}, metadata={"feature": "eval-judge"})
     joined = "\n\n---\n\n".join(contexts)
     user = (
         f"Question:\n{question}\n\nRetrieved context:\n{joined}\n\n"

@@ -25,7 +25,8 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 
-from . import config, graph_qa, llm, rerank
+from . import config, graph_qa, llm, rerank, tracing
+from .tracing import observe
 
 _COLLECTION = "sp500_vault"
 _MANIFEST = config.CHROMA_DIR / "rag_manifest.json"
@@ -420,13 +421,19 @@ def _contexts(docs) -> list[str]:
     return out
 
 
+@observe(name="rag-query")
 def query(question: str, k: int = 6, ticker=None, sector=None, sentiment=None,
           history: list[dict] | None = None) -> dict:
+    # Trace the user's question (not all args) and group multi-turn conversations
+    # under a session derived from the first user message (stable across turns).
+    tracing.update_trace(input=question, session_id=_session_id(history), tags=["rag"],
+                         metadata={"k": k, "ticker": ticker, "sector": sector})
     # Follow-ups: rewrite to a standalone question so retrieval works on the
     # resolved intent ("what about its suppliers?" -> "Who supplies NVIDIA?").
     search_q = llm.condense_question(history, question) if history else question
     docs = retrieve(search_q, k, ticker, sector, sentiment)
     if not docs:
+        tracing.update_trace(output="No indexed context matched that query.")
         return {"answer": "No indexed context matched that query.", "sources": []}
     answer = llm.rag_answer(question, _contexts(docs), history=history)
     # Skip synthetic context with no ticker (e.g. the aggregate summary row).
@@ -435,7 +442,17 @@ def query(question: str, k: int = 6, ticker=None, sector=None, sentiment=None,
     out = {"answer": answer, "sources": sources}
     if history and search_q != question:
         out["resolved_question"] = search_q   # surfaced so the UI can show what was searched
+    tracing.update_trace(output=answer)
     return out
+
+
+def _session_id(history: list[dict] | None) -> str | None:
+    """Group a conversation's turns: a stable id from its first user message."""
+    if not history:
+        return None
+    first = next((h.get("content", "") for h in history
+                  if (h.get("role") or "user") == "user"), "")
+    return "conv-" + hashlib.sha1(first.encode("utf-8")).hexdigest()[:12] if first else None
 
 
 def count() -> int:

@@ -60,7 +60,7 @@ def _rerank_llm(query: str, docs: list, top_n: int) -> list:
             f"Return the indices of the most relevant chunks, best first, as a JSON array.")
     if config.RERANK_PROVIDER.lower() == "openai":
         resp = llm.openai_client().chat.completions.create(
-            model=config.OPENAI_ANSWER_MODEL, max_tokens=512,
+            model=config.OPENAI_ANSWER_MODEL, max_tokens=512, name="rerank",
             response_format={"type": "json_object"},
             messages=[{"role": "system", "content": _RANK_SYSTEM},
                       {"role": "user", "content": user}])

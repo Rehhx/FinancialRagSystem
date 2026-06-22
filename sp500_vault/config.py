@@ -44,6 +44,20 @@ NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")            # NewsAPI.org /everythin
 MARKETAUX_API_KEY = os.getenv("MARKETAUX_API_KEY", "")  # Marketaux /news/all
 FMP_API_KEY = os.getenv("FMP_API_KEY", "")              # Financial Modeling Prep fundamentals
 
+# ── Langfuse tracing (optional) ──────────────────────────────────────────────
+# When both keys are present, LLM calls are traced to Langfuse (OpenAI via the
+# drop-in client, Anthropic via the OTel instrumentor). Absent keys → tracing
+# no-ops and the app runs unchanged. The CLI/skill uses LANGFUSE_BASE_URL while
+# the SDK reads LANGFUSE_HOST, so accept either and mirror it into the env the
+# SDK expects (must happen before langfuse is imported in tracing.py).
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
+LANGFUSE_HOST = (os.getenv("LANGFUSE_HOST") or os.getenv("LANGFUSE_BASE_URL")
+                 or "https://us.cloud.langfuse.com")
+if LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY:
+    os.environ.setdefault("LANGFUSE_HOST", LANGFUSE_HOST)
+TRACING_ENABLED = bool(LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY)
+
 # ── Models / tunables ────────────────────────────────────────────────────────
 # Default to the most capable Claude model; override with ANTHROPIC_MODEL.
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-8")

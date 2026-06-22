@@ -34,5 +34,11 @@ pydantic>=2.6.0
 python-dotenv>=1.0.0
 tenacity>=8.2.0
 
+# --- Observability (optional: LLM tracing via Langfuse) ---
+# Tracing no-ops unless LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY are set. OpenAI
+# calls are traced via langfuse's drop-in client; Anthropic via the OTel instrumentor.
+langfuse>=3.0.0
+opentelemetry-instrumentation-anthropic>=0.30.0
+
 # --- Dev ---
 pytest>=8.0.0

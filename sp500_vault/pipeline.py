@@ -18,7 +18,8 @@ import sqlite3
 import sys
 
 from . import (archive, backtest, config, evaluation, event_backtest, filings, graph_export,
-               quant, relationships, sentiment, sentiment_backtest, signals, vault_render, rag)
+               quant, relationships, sentiment, sentiment_backtest, signals, tracing,
+               vault_render, rag)
 from .universe import SECTORS, TICKERS, tickers_for_group
 
 # Windows consoles default to cp1252 and choke on em-dashes/arrows in model output.
@@ -131,6 +132,7 @@ def _stats() -> None:
     print(f"  vault notes     {len(notes)}")
 
     print(f"  rag index       {rag.count()} chunks (LangChain + OpenAI embeddings)")
+    print(f"  tracing         Langfuse {tracing.status()}")
 
     ev_file = config.BASE_DIR / "eval" / "eval_report.json"
     if ev_file.exists():
@@ -145,6 +147,14 @@ def _stats() -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    # Short-lived CLI: always flush buffered traces before exit, or they're lost.
+    try:
+        _run(argv)
+    finally:
+        tracing.flush()
+
+
+def _run(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="sp500_vault", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 

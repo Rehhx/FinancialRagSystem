@@ -310,6 +310,42 @@ def test_sentiment_rank_ic():
     assert sb._rank_ic([1, 1, 1], [1, 2, 3]) is None        # no variance in x -> None
 
 
+# ── Langfuse tracing (no-op safety + session grouping) ───────────────────────
+
+def test_tracing_noop_observe_passthrough():
+    from sp500_vault import tracing
+    # The no-op decorator must work bare (@observe) and parameterized (@observe(name=...)).
+    @tracing._noop_observe
+    def bare(x):
+        return x + 1
+
+    @tracing._noop_observe(name="thing")
+    def named(x):
+        return x * 2
+
+    assert bare(1) == 2 and named(3) == 6
+
+
+def test_tracing_helpers_never_raise():
+    from sp500_vault import tracing
+    # update_span/update_trace/flush must be safe to call regardless of state.
+    tracing.update_span(input={"a": 1})
+    tracing.update_trace(output="ok")
+    tracing.flush()
+    assert isinstance(tracing.status(), str)
+
+
+def test_rag_session_id_stable_per_conversation():
+    # Same first user message -> same session id across turns; empty history -> None.
+    h1 = [{"role": "user", "content": "Who supplies NVIDIA?"},
+          {"role": "assistant", "content": "..."}]
+    h2 = h1 + [{"role": "user", "content": "What about its competitors?"}]
+    assert rag._session_id(h1) == rag._session_id(h2)
+    assert rag._session_id(h1).startswith("conv-")
+    assert rag._session_id(None) is None
+    assert rag._session_id([]) is None
+
+
 def test_normalize_history_panel():
     import pandas as pd
     from sp500_vault import sentiment_backtest as sb
