@@ -144,6 +144,22 @@ EDGAR_8K_SUMMARY_ITEMS = os.getenv(
     "EDGAR_8K_SUMMARY_ITEMS", "1.01,1.02,1.03,2.01,2.05,2.06,4.02,5.01,5.02")
 EDGAR_8K_BODY_MAX_CHARS = int(os.getenv("EDGAR_8K_BODY_MAX_CHARS", "12000"))
 
+# ── Signal engine (external trading-engine API) ──────────────────────────────
+# `engine.py` blends the vault's three validated strategies into a per-ticker
+# LONG/SHORT/FLAT verdict, each weighted by its measured Information Coefficient
+# (Grinold–Kahn signal combination; Fundamental Law IR = IC·√breadth). Designed
+# to be polled by an *external* trading engine over HTTP (GET /signal/{ticker}).
+TRADE_HORIZON = int(os.getenv("TRADE_HORIZON", "5"))            # default forward horizon (trading days)
+SUPMOM_K = int(os.getenv("SUPMOM_K", "5"))                      # supplier-momentum lookback (days)
+CONVICTION_TAU = float(os.getenv("CONVICTION_TAU", "0.5"))     # |conviction z| needed to act (else FLAT)
+IC_FLOOR = float(os.getenv("IC_FLOOR", "0.0"))                 # min |IC| for a component to contribute
+EVENT_LOOKBACK_DAYS = int(os.getenv("EVENT_LOOKBACK_DAYS", "7"))  # an 8-K's drift is "live" this many days
+EVENT_MIN_T = float(os.getenv("EVENT_MIN_T", "2.0"))          # only trade event drift with |t| ≥ this
+EVENT_IC = float(os.getenv("EVENT_IC", "0.10"))              # trust weight for a significant event drift
+# Sentiment lead-lag IC: prefer the measured rank-IC at the horizon (claude panel,
+# then provider); fall back to this when neither has scorable obs yet.
+SENTIMENT_IC_FALLBACK = float(os.getenv("SENTIMENT_IC_FALLBACK", "0.05"))
+
 
 def high_signal_items() -> set[str]:
     """The 8-K item codes worth an LLM body summary (from EDGAR_8K_SUMMARY_ITEMS)."""

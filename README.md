@@ -44,6 +44,7 @@ Ingestion ──► Processing ──► Vault (markdown + [[links]]) ──► 
 | Sentiment lead-lag | `sentiment_backtest.py` (Claude daily + provider sentiment → forward return, rank IC) | `data/signals/sentiment_backtest.json`, `vault/_SentimentBacktest.md` |
 | Signals | `signals.py` (Alpaca IEX → yfinance) | `data/signals/correlations.json`, `vault/_Signals.md` |
 | Backtest | `backtest.py` (lead-lag) | `data/signals/backtest.json`, `vault/_Backtest.md` |
+| Signal engine | `engine.py` (IC-weighted blend of the three strategies → LONG/SHORT/FLAT per ticker; `GET /signal/{ticker}` for an external trading engine) | `data/signals/trades.json`, `vault/_Trades.md` |
 | Vault render | `vault_render.py` | `vault/<T>.md`, `<T>_news_log.md`, `_Dashboard.md` |
 | RAG index | `rag.py` (LangChain + OpenAI embeddings + Chroma; note chunks + per-ticker news + 8-K events) | `data/chroma/` (incremental) |
 | Graph export | `graph_export.py` | `data/graph/graph.json` (for future web viz) |
@@ -120,6 +121,7 @@ python -m sp500_vault.pipeline sentiment
 python -m sp500_vault.pipeline filings        # SEC 8-K material events + one-line LLM summaries (high-signal items)
 python -m sp500_vault.pipeline signals        # price co-movement validation + edge weights
 python -m sp500_vault.pipeline backtest       # supplier-momentum -> customer lead-lag
+python -m sp500_vault.pipeline trades         # signal engine: blend the 3 strategies -> LONG/SHORT/FLAT snapshot
 python -m sp500_vault.pipeline archive        # accumulate 8-Ks/news into the append-only event archive
 python -m sp500_vault.pipeline eventbacktest  # event study: forward returns after 8-Ks, by item type
 python -m sp500_vault.pipeline sentimentbacktest  # sentiment lead-lag: news sentiment -> forward return (rank IC)
@@ -155,7 +157,49 @@ uvicorn sp500_vault.api:app --reload
 #   http://127.0.0.1:8000/            -> graph explorer (D3 force graph + RAG box)
 #   POST http://127.0.0.1:8000/query  -> RAG endpoint
 #   GET  http://127.0.0.1:8000/graph.json
+#   GET  http://127.0.0.1:8000/signal/{ticker}  -> LONG/SHORT/FLAT verdict (trading-engine API)
+#   GET  http://127.0.0.1:8000/signals?tickers=NVDA,AMD  -> batch (omit tickers for the ranked book)
 ```
+
+### Signal engine API (call it from your own trading engine)
+
+`engine.py` blends the vault's three **validated** strategies — sentiment
+lead-lag, supplier lead-lag, and 8-K event drift — into one per-ticker
+recommendation. Each strategy is weighted by its **measured Information
+Coefficient** (Grinold–Kahn signal combination; the *Fundamental Law of Active
+Management*, IR = IC·√breadth), so a strong signal dominates and a contrarian one
+flips. The blend is z-scored across the universe into a **conviction**, and a name
+trades only when `|conviction| ≥ τ` **and** it has a validated edge — everything
+else is `flat` (that's the "or not").
+
+Build the daily snapshot once (`pipeline trades`), then poll it — reads are fast
+and make **no** market-data or LLM calls per request:
+
+```bash
+# direction for one position (default 5-day horizon)
+curl 'http://127.0.0.1:8000/signal/NVDA'
+# -> {"ticker":"NVDA","direction":"long","conviction":0.60,"confidence":"high",
+#     "breadth":2,"components":{"sentiment":{...},"supplier_leadlag":{...}}, ...}
+
+curl 'http://127.0.0.1:8000/signal/NVDA?horizon=3'                 # another holding period
+curl 'http://127.0.0.1:8000/signal/NVDA?overlay=0.8&overlay_weight=0.5'  # blend in YOUR signal
+curl 'http://127.0.0.1:8000/signals?tickers=NVDA,AMD,TSLA'         # batch
+curl 'http://127.0.0.1:8000/signals'                              # whole universe, ranked
+```
+
+| Param | Meaning |
+|---|---|
+| `horizon` | forward holding period in trading days (default `TRADE_HORIZON`, 5) — re-weights every component from the same snapshot |
+| `tau` | conviction (σ) needed to act; below it → `flat` (default `CONVICTION_TAU`, 0.5) |
+| `overlay` | **your own** normalized signal (positive = long); combined as `(1−w)·vault + w·overlay` |
+| `overlay_weight` | how much to trust your overlay vs the vault, `0`–`1` |
+
+Each verdict returns `direction`, `conviction` (signed σ), `strength` (0–1 for
+sizing), `confidence`/`breadth`/`agreement`, and a `components` breakdown with the
+per-strategy contribution and a plain-English `reason`, so your engine can act on
+the blend or cherry-pick individual signals. Tunables live in `config.py`
+(`TRADE_HORIZON`, `CONVICTION_TAU`, `IC_FLOOR`, `SUPMOM_K`, `EVENT_LOOKBACK_DAYS`,
+`EVENT_MIN_T`, `EVENT_IC`).
 
 ### Web graph explorer
 

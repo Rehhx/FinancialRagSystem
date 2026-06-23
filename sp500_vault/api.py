@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import backtest, config, filings, graph_export, rag, sentiment, tracing
+from . import backtest, config, engine, filings, graph_export, rag, sentiment, tracing
 from .universe import PILOT_UNIVERSE, TICKERS
 
 
@@ -132,6 +132,38 @@ def catalysts(ticker: str) -> JSONResponse:
         for a in ((sentiment.load(t) or {}).get("articles") or [])[:8]
     ]
     return JSONResponse({"ticker": t, "events": events, "news": news})
+
+
+@app.get("/signal/{ticker}")
+def signal(ticker: str, horizon: int | None = None, tau: float | None = None,
+           overlay: float | None = None, overlay_weight: float = 1.0) -> JSONResponse:
+    """LONG / SHORT / FLAT verdict for one ticker — the entry point for an external
+    trading engine. Blends the vault's sentiment + supplier lead-lag + 8-K event
+    drift, each weighted by its measured IC, into a z-scored conviction.
+
+        GET /signal/NVDA                    default 5d horizon
+        GET /signal/NVDA?horizon=3          another holding period
+        GET /signal/NVDA?overlay=0.8&overlay_weight=0.5   blend in your own signal
+
+    ``overlay`` is your own normalized signal (positive = long); ``overlay_weight``
+    (0–1) is how much to trust it vs the vault. Reads a daily snapshot, so it's fast
+    and makes no market-data/LLM calls per request (build it with
+    `python -m sp500_vault.pipeline trades`)."""
+    return JSONResponse(engine.verdict(ticker, horizon=horizon, tau=tau,
+                                       overlay=overlay, overlay_weight=overlay_weight))
+
+
+@app.get("/signals")
+def signals(tickers: str | None = None, horizon: int | None = None,
+            tau: float | None = None) -> JSONResponse:
+    """Batch verdicts. ``?tickers=NVDA,AMD,AAPL`` for specific names, or omit to get
+    the whole universe ranked by conviction (LONG → SHORT)."""
+    if tickers:
+        names = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+        return JSONResponse({"horizon_days": int(horizon or config.TRADE_HORIZON),
+                             "signals": [engine.verdict(t, horizon=horizon, tau=tau) for t in names]})
+    return JSONResponse({"horizon_days": int(horizon or config.TRADE_HORIZON),
+                         "signals": engine.book(horizon=horizon, tau=tau)})
 
 
 @app.get("/health")

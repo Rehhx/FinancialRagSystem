@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import math
 
-from sp500_vault import backtest, graph_export, graph_qa, rag, relationships, signals, vault_render
+from sp500_vault import (backtest, config, graph_export, graph_qa, rag, relationships,
+                         signals, vault_render)
 from sp500_vault.universe import resolve_ticker, tickers_for_group
 
 
@@ -776,3 +777,98 @@ def test_recall_mrr():
     assert r == 0.5 and rr == 0.5
     r, rr, hits = _recall_mrr(["MU"], ["AMD", "INTC"])             # miss
     assert r == 0.0 and rr == 0.0 and hits == []
+
+
+# ── signal engine (long/short/flat blend) ────────────────────────────────────
+
+from sp500_vault import engine  # noqa: E402
+
+
+def test_engine_zscore_demeans_and_skips_none():
+    z = engine._zscore({"A": 1.0, "B": 3.0, "C": None})
+    assert z["C"] is None
+    assert round(z["A"], 3) == -1.0 and round(z["B"], 3) == 1.0   # ±1σ around mean 2
+    # Degenerate spread -> all zero, not a divide-by-zero.
+    assert engine._zscore({"A": 5.0, "B": 5.0}) == {"A": 0.0, "B": 0.0}
+
+
+def test_engine_scale_around_zero_preserves_sign():
+    s = engine._scale_around_zero({"A": 0.02, "B": -0.02, "C": 0.0})
+    assert s["A"] > 0 and s["B"] < 0 and s["C"] == 0.0          # zero stays inactive
+    assert engine._scale_around_zero({"A": 0.0, "B": 0.0}) == {"A": 0.0, "B": 0.0}
+
+
+def test_engine_sentiment_ic_prefers_claude_then_provider_then_fallback():
+    sb = {"sources": [
+        {"name": "claude", "sentiment_ic": [{"h": 5, "rank_ic": None}]},
+        {"name": "provider", "sentiment_ic": [{"h": 5, "rank_ic": 0.12}]},
+    ]}
+    ic, src = engine._sentiment_ic(sb, 5)
+    assert ic == 0.12 and "provider" in src
+    ic2, src2 = engine._sentiment_ic({"sources": []}, 5)
+    assert ic2 == config.SENTIMENT_IC_FALLBACK and src2 == "fallback"
+
+
+def test_engine_supplier_ic_grid_then_best():
+    bt = {"ic_grid": {"k5_h5": {"ic": 0.03}}, "best": {"k": 3, "h": 3, "ic": 0.044}}
+    assert engine._supplier_ic(bt, 5, 5)[0] == 0.03
+    assert engine._supplier_ic(bt, 9, 9)[0] == 0.044            # falls back to best
+    assert engine._supplier_ic({}, 5, 5) == (0.0, "none")
+
+
+def test_engine_event_edge_gates_on_significance():
+    idx = engine._event_index({"by_event": [
+        {"code": "2.02", "h": 5, "mean_abn_ret": 0.018, "t_stat": 2.4, "label": "Earnings"},
+        {"code": "8.01", "h": 5, "mean_abn_ret": 0.05, "t_stat": 0.3, "label": "Other"},
+    ]})
+    recent = [{"code": "2.02"}, {"code": "8.01"}, {"code": "2.02"}]   # dup + insignificant
+    edge, reasons = engine._event_edge(recent, idx, 5, min_t=2.0)
+    assert edge == 0.018 and len(reasons) == 1                  # only the significant 2.02, once
+
+
+def test_engine_recent_events_window():
+    evs = [{"filing_date": "2026-06-20", "items": [{"code": "2.02", "label": "x"}]},
+           {"filing_date": "2026-05-01", "items": [{"code": "1.01", "label": "y"}]}]
+    rec = engine._recent_events(evs, "2026-06-22", lookback_days=7)
+    assert [r["code"] for r in rec] == ["2.02"]                 # the May filing is stale
+
+
+def _toy_snapshot():
+    # Two names: GO is bullish + strong supplier momentum, NO is bearish + weak.
+    return {
+        "as_of": "2026-06-22", "price_source": "test", "supmom_k": 5,
+        "universe": ["GO", "NO"],
+        "signals": {
+            "GO": {"sentiment": 0.8, "sentiment_label": "Bullish", "sentiment_z": 1.0,
+                   "supplier_mom": 0.03, "supplier_n": 3, "supplier_z": 1.0, "recent_events": []},
+            "NO": {"sentiment": -0.8, "sentiment_label": "Bearish", "sentiment_z": -1.0,
+                   "supplier_mom": -0.03, "supplier_n": 2, "supplier_z": -1.0, "recent_events": []},
+        },
+    }
+
+
+def test_engine_build_book_directions_and_breadth():
+    bt = {"ic_grid": {"k5_h5": {"ic": 0.05}}}
+    sb = {"sources": [{"name": "claude", "sentiment_ic": [{"h": 5, "rank_ic": 0.1}]}]}
+    book = engine.build_book(_toy_snapshot(), bt, sb, {}, horizon=5, tau=0.5)
+    assert book["GO"]["direction"] == "long" and book["NO"]["direction"] == "short"
+    assert book["GO"]["breadth"] == 2 and book["GO"]["confidence"] == "high"  # both agree bullish
+    assert book["GO"]["conviction"] > 0 and book["NO"]["conviction"] < 0
+
+
+def test_engine_no_edge_is_flat():
+    snap = _toy_snapshot()
+    for v in snap["signals"].values():                         # strip every signal
+        v.update(sentiment=None, sentiment_z=None, supplier_mom=None, supplier_z=None, recent_events=[])
+    book = engine.build_book(snap, {}, {"sources": []}, {}, horizon=5, tau=0.5)
+    assert book["GO"]["direction"] == "flat" and book["GO"]["breadth"] == 0
+    assert book["GO"]["confidence"] == "none"
+
+
+def test_engine_overlay_can_flip_direction():
+    bt = {"ic_grid": {"k5_h5": {"ic": 0.05}}}
+    sb = {"sources": [{"name": "claude", "sentiment_ic": [{"h": 5, "rank_ic": 0.1}]}]}
+    go = engine.build_book(_toy_snapshot(), bt, sb, {}, horizon=5, tau=0.5)["GO"]
+    flipped = engine.apply_overlay(go, overlay=-5.0, weight=1.0, tau=0.5)   # fully trust a bearish overlay
+    assert flipped["direction"] == "short" and flipped["overlay_applied"] is True
+    assert flipped["base_direction"] == "long"                 # original verdict preserved

@@ -17,9 +17,9 @@ import json
 import sqlite3
 import sys
 
-from . import (archive, backtest, config, evaluation, event_backtest, filings, graph_export,
-               quant, relationships, sentiment, sentiment_backtest, signals, tracing,
-               vault_render, rag)
+from . import (archive, backtest, config, engine, evaluation, event_backtest, filings,
+               graph_export, quant, relationships, sentiment, sentiment_backtest, signals,
+               tracing, vault_render, rag)
 from .universe import SECTORS, TICKERS, tickers_for_group
 
 # Windows consoles default to cp1252 and choke on em-dashes/arrows in model output.
@@ -127,6 +127,14 @@ def _stats() -> None:
             ic1 = next((c["rank_ic"] for c in s.get("sentiment_ic", []) if c["h"] == 1), None)
             print(f"  sentiment ({s['name']})  {s['n_obs']} obs, 1d rank-IC {ic1}")
 
+    snap = engine.load_snapshot()
+    if snap:
+        rows = engine.book()
+        nl = sum(1 for r in rows if r["direction"] == "long")
+        ns = sum(1 for r in rows if r["direction"] == "short")
+        print(f"  signal engine   {len(rows)} names: {nl} long, {ns} short, "
+              f"{len(rows) - nl - ns} flat ({config.TRADE_HORIZON}d; {snap.get('as_of')})")
+
     notes = [p for p in config.VAULT_DIR.glob("*.md")
              if not p.stem.endswith("_news_log") and not p.stem.startswith("_")]
     print(f"  vault notes     {len(notes)}")
@@ -160,7 +168,7 @@ def _run(argv: list[str] | None = None) -> None:
 
     no_selection = {"index", "export", "dashboard", "stats", "eventbacktest", "sentimentbacktest"}
     for name in ("quant", "relationships", "sentiment", "filings", "archive", "signals",
-                 "backtest", "eventbacktest", "sentimentbacktest", "vault", "index",
+                 "backtest", "eventbacktest", "sentimentbacktest", "trades", "vault", "index",
                  "dashboard", "export", "stats", "all"):
         sp = sub.add_parser(name, help=f"Run the {name} layer")
         if name not in no_selection:
@@ -223,6 +231,8 @@ def _run(argv: list[str] | None = None) -> None:
         signals.run(tickers, force=force)
     if args.cmd in ("backtest", "all"):
         backtest.run(tickers, force=force)
+    if args.cmd in ("trades", "all"):
+        engine.run(tickers, force=force)
     if args.cmd in ("vault", "all"):
         vault_render.run(tickers)
     if args.cmd in ("index", "all"):
