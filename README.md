@@ -315,8 +315,11 @@ Each layer is its own subcommand precisely so they don't have to refresh togethe
 
 A scheduled task **`SP500_RAG_Vault_Daily`** runs `scripts\daily_refresh.bat` every
 day at 6:00 AM → `python -m sp500_vault.scheduler tick`, which refreshes the due
-layers (sentiment/signals/backtest), re-renders the vault, and **incrementally
-re-embeds only the changed chunks**. Output appends to `data\scheduler.log`.
+layers (sentiment/filings/signals/backtest), **rebuilds the LONG/SHORT/FLAT trade
+snapshot** (`engine.run` → `data/signals/trades.json`, served at `GET /signal/{ticker}`),
+re-renders the vault, and **incrementally re-embeds only the changed chunks**. The
+running API auto-serves the new snapshot (its cache keys on the file's mtime — no
+restart). Output appends to `data\scheduler.log`.
 
 ```powershell
 Get-ScheduledTaskInfo    -TaskName SP500_RAG_Vault_Daily   # status / next run

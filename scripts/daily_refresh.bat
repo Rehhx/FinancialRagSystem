@@ -2,9 +2,10 @@
 REM ==========================================================================
 REM  S&P 500 RAG Vault — daily refresh
 REM  Run by Windows Task Scheduler. Runs every due layer (sentiment/signals/
-REM  backtest daily; quant quarterly; relationships annually), then re-renders
-REM  the vault and incrementally re-embeds only the chunks that changed.
-REM  Logs to data\scheduler.log.
+REM  backtest/engine daily; quant quarterly; relationships annually), then
+REM  rebuilds the LONG/SHORT/FLAT trade snapshot, re-renders the vault, and
+REM  incrementally re-embeds only the chunks that changed. Logs to
+REM  data\scheduler.log.
 REM ==========================================================================
 cd /d "C:\Users\pcagm\PycharmProjects\PythonProject12"
 echo. >> "data\scheduler.log"

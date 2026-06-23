@@ -20,8 +20,8 @@ import json
 import sys
 import time
 
-from . import (backtest, config, filings, graph_export, quant, relationships, sentiment,
-               signals, vault_render, rag)
+from . import (backtest, config, engine, filings, graph_export, quant, relationships,
+               sentiment, signals, vault_render, rag)
 from .universe import TICKERS
 
 for _stream in (sys.stdout, sys.stderr):
@@ -38,6 +38,7 @@ CADENCE_HOURS = {
     "filings": 24,            # daily (8-K events are sporadic but time-sensitive)
     "signals": 24,            # daily (price-based)
     "backtest": 24,           # daily (price-based)
+    "engine": 24,             # daily — rebuild the LONG/SHORT/FLAT trade snapshot
     "quant": 24 * 90,         # ~quarterly
     "relationships": 24 * 365,  # ~annually
 }
@@ -49,6 +50,7 @@ _RUNNERS = {
     "filings": filings.run,
     "signals": signals.run,
     "backtest": backtest.run,
+    "engine": engine.run,
 }
 
 
@@ -98,7 +100,9 @@ def tick(force: list[str] | None = None) -> bool:
     force = set(force or [])
     ran = False
 
-    for layer in ("quant", "relationships", "sentiment", "filings", "signals", "backtest"):  # data layers first
+    # data layers first; engine last so it rebuilds the snapshot from the freshly
+    # refreshed sentiment + 8-K caches (and pulls live prices itself).
+    for layer in ("quant", "relationships", "sentiment", "filings", "signals", "backtest", "engine"):
         if layer in force or _due(layer, state, now):
             print(f"[sched] running due layer: {layer}")
             _RUNNERS[layer](list(TICKERS), force=(layer in force))
