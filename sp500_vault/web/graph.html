@@ -301,6 +301,39 @@
     margin-left:6px; box-shadow:0 0 0 0 rgba(65,209,120,.6); animation: livePulse 2.4s ease-out infinite; vertical-align: middle; }
   @keyframes livePulse { 0% { box-shadow:0 0 0 0 rgba(65,209,120,.55);} 70% { box-shadow:0 0 0 7px rgba(65,209,120,0);} 100% { box-shadow:0 0 0 0 rgba(65,209,120,0);} }
 
+  /* Animated chart enter transitions (equity line draws itself in JS via
+     stroke-dashoffset; these cover the heatmap + event bars). */
+  @keyframes cellPop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
+  .heat .cell.pop { animation: cellPop .42s cubic-bezier(.3,.85,.3,1) both; }
+  .ev-row .track .bar { transition: width .6s cubic-bezier(.25,.9,.3,1); }
+
+  /* ── Guided tour ────────────────────────────────────────────────────────── */
+  #tourMask { position: fixed; border-radius: 12px; pointer-events: none; z-index: 60; opacity: 0;
+    box-shadow: 0 0 0 9999px rgba(7,10,15,.66), 0 0 0 2px var(--accent), 0 0 24px 5px rgba(90,162,255,.45);
+    transition: left .42s cubic-bezier(.4,.8,.3,1), top .42s cubic-bezier(.4,.8,.3,1),
+      width .42s cubic-bezier(.4,.8,.3,1), height .42s cubic-bezier(.4,.8,.3,1), opacity .3s; }
+  #tourMask.on { opacity: 1; }
+  #tourPop { position: fixed; z-index: 61; width: 288px; max-width: calc(100vw - 28px);
+    background: var(--panel); border: 1px solid var(--line2); border-radius: 12px; box-shadow: var(--shadow);
+    padding: 14px 15px 12px; opacity: 0; transform: translateY(8px); pointer-events: none;
+    transition: opacity .3s, transform .3s, left .42s cubic-bezier(.4,.8,.3,1), top .42s cubic-bezier(.4,.8,.3,1); }
+  #tourPop.on { opacity: 1; transform: none; pointer-events: auto; }
+  #tourPop h4 { margin: 0 0 5px; font-size: 13.5px; }
+  #tourPop p { margin: 0 0 12px; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+  #tourPop .tour-foot { display: flex; align-items: center; gap: 7px; }
+  #tourPop .tour-dots { display: flex; gap: 4px; margin-right: auto; }
+  #tourPop .tour-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line2); transition: background .2s, transform .2s; }
+  #tourPop .tour-dots i.on { background: var(--accent); transform: scale(1.25); }
+  #tourPop button { font: inherit; border-radius: 7px; cursor: pointer; padding: 6px 11px; font-size: 12px;
+    transition: transform .12s, filter .15s, border-color .15s, color .15s; }
+  #tourPop button:active { transform: translateY(1px); }
+  #tourPop .t-skip { background: 0; border: 0; color: var(--faint); padding: 6px 4px; }
+  #tourPop .t-skip:hover { color: var(--muted); }
+  #tourPop .t-back { background: var(--panel2); border: 1px solid var(--line2); color: var(--text); }
+  #tourPop .t-back:hover { border-color: var(--faint); }
+  #tourPop .t-next { background: var(--accent); border: 1px solid var(--accent); color: #fff; font-weight: 650; }
+  #tourPop .t-next:hover { filter: brightness(1.08); }
+
   /* Respect users who prefer reduced motion — kill all the above. */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important;
@@ -320,6 +353,7 @@
     <button class="ghost" id="openPf" title="Portfolio exposure overlay — paste holdings to see your connected supply-chain exposure">💼 Portfolio</button>
     <button class="ghost" id="openBt" title="Lead-lag backtest: supplier momentum → customer returns">📈 Backtest</button>
     <button class="ghost" id="openEv" title="Event study: market-adjusted forward returns after 8-K filings by item type + sentiment lead-lag">📊 Event study</button>
+    <button class="ghost" id="openTour" title="Guided 30-second tour of the graph explorer">🧭 Tour</button>
     <button class="ghost" id="regen" title="Re-export graph.json from the current vault data (no LLM calls)">↻ Regenerate</button>
   </header>
 
@@ -515,6 +549,8 @@ d3.json("/graph.json").then(data => {
   buildControls();
   firstLoad = false;
   d3.select("#loader").transition().duration(400).style("opacity", 0).remove();
+  let seen; try { seen = localStorage.getItem(TOUR_KEY); } catch (e) { seen = "1"; }
+  if (!seen) setTimeout(tourStart, 1100);      // first-time visitors: auto-run once after pop-in settles
 });
 
 // Regenerate graph.json server-side, then swap the data in live
@@ -924,6 +960,11 @@ document.getElementById("search").addEventListener("change", e => {
   if (hit) { selectNode(hit); focusNode(hit); }
 });
 document.addEventListener("keydown", e => {
+  if (tourOn) {                                 // tour owns the keyboard while it's up
+    if (e.key === "Escape" || e.key === "Enter" && tourIdx === TOUR_STEPS.length - 1) { tourEnd(); e.preventDefault(); return; }
+    if (e.key === "ArrowRight" || e.key === "Enter") { tourGo(tourIdx + 1); e.preventDefault(); return; }
+    if (e.key === "ArrowLeft") { tourGo(tourIdx - 1); e.preventDefault(); return; }
+  }
   if (e.key === "Escape") {
     selected = null; clearHighlight(); renderDetail(null);
     ["answerCard", "backtestCard", "portfolioCard", "eventCard"].forEach(id =>
@@ -1041,8 +1082,16 @@ function drawEquity(eq) {
   const line = d3.line().x((d, i) => x(i)).y(d => y(d)).curve(d3.curveMonotoneX);
   svg.append("line").attr("x1", m.l).attr("x2", W - m.r).attr("y1", y(1)).attr("y2", y(1))
     .attr("stroke", "#2c3645").attr("stroke-dasharray", "3,3");
-  svg.append("path").datum(eq).attr("fill", "url(#eqgrad)").attr("d", area);
-  svg.append("path").datum(eq).attr("fill", "none").attr("stroke", "#41d178").attr("stroke-width", 1.8).attr("d", line);
+  const areaPath = svg.append("path").datum(eq).attr("fill", "url(#eqgrad)").attr("d", area);
+  const linePath = svg.append("path").datum(eq).attr("fill", "none").attr("stroke", "#41d178")
+    .attr("stroke-width", 1.8).attr("d", line);
+  if (!REDUCED) {                              // draw the equity line on, fade the area up under it
+    const L = linePath.node().getTotalLength();
+    linePath.attr("stroke-dasharray", `${L} ${L}`).attr("stroke-dashoffset", L)
+      .transition().duration(1100).ease(d3.easeCubicInOut).attr("stroke-dashoffset", 0)
+      .on("end", function () { d3.select(this).attr("stroke-dasharray", null); });
+    areaPath.attr("opacity", 0).transition().delay(250).duration(900).attr("opacity", 1);
+  }
   svg.append("g").attr("transform", `translate(${m.l},0)`)
     .call(d3.axisLeft(y).ticks(4).tickFormat(d3.format(".2f")))
     .call(g => g.select(".domain").remove());
@@ -1072,6 +1121,13 @@ function drawHeatmap(grid, best) {
     }
   }
   el.innerHTML = html + "</div>";
+  if (!REDUCED) {                              // ripple the cells in, reading order, on a diagonal
+    el.querySelectorAll(".cell").forEach((c, i) => {
+      const col = i % hs.length, row = Math.floor(i / hs.length);
+      c.style.animationDelay = (row + col) * 45 + "ms";
+      c.classList.add("pop");
+    });
+  }
 }
 document.getElementById("openBt").addEventListener("click", openBacktest);
 document.getElementById("closeBt").addEventListener("click", () => btCard.classList.remove("show"));
@@ -1117,11 +1173,13 @@ function renderEvBars(d, h) {
     .sort((a, b) => b.mean_abn_ret - a.mean_abn_ret);
   if (!rows.length) { el.innerHTML = '<div class="muted" style="padding:8px 0">No event data yet — run <span class="kbd">pipeline eventbacktest</span>.</div>'; return; }
   const maxAbs = d3.max(rows, r => Math.abs(r.mean_abn_ret)) || 0.01;
-  el.innerHTML = rows.map(r => {
+  el.innerHTML = rows.map((r, i) => {
     const ret = r.mean_abn_ret, pos = ret >= 0, w = Math.abs(ret) / maxAbs * 50;
     const sig = r.t_stat != null && Math.abs(r.t_stat) >= 2;
     const col = pos ? "var(--supplier)" : "#e5534b";
-    const bar = `<span class="bar" style="${pos ? "left:50%" : "right:50%"};width:${w}%;background:${col};opacity:${sig ? 1 : 0.45}"></span>`;
+    const start = REDUCED ? w : 0;             // grow each bar from the zero line on render
+    const bar = `<span class="bar" data-w="${w}" style="${pos ? "left:50%" : "right:50%"};width:${start}%;`
+      + `background:${col};opacity:${sig ? 1 : 0.45};transition-delay:${i * 45}ms"></span>`;
     const tt = r.t_stat != null ? `t ${r.t_stat >= 0 ? "+" : ""}${r.t_stat.toFixed(1)}` : "t —";
     const name = EV_SHORT[r.code] || r.label;
     const val = `<b style="color:${col}">${pos ? "+" : ""}${(ret * 100).toFixed(2)}%</b> ${sig ? "✦" : "&nbsp;"} `
@@ -1129,6 +1187,8 @@ function renderEvBars(d, h) {
     return `<div class="ev-row"><span class="lab" title="${escapeHtml(r.label)}"><span class="cd">${r.code}</span> ${escapeHtml(name)}</span>`
       + `<span class="track"><span class="zero"></span>${bar}</span><span class="val">${val}</span></div>`;
   }).join("");
+  if (!REDUCED) requestAnimationFrame(() =>
+    el.querySelectorAll(".bar").forEach(b => { b.style.width = b.dataset.w + "%"; }));
 }
 function renderEvSent(s) {
   const el = document.getElementById("evSent");
@@ -1256,7 +1316,106 @@ hullChip.addEventListener("click", () => {
   hullsOn = !hullsOn; hullChip.classList.toggle("off", !hullsOn); updateHulls();
 });
 
-window.addEventListener("resize", () => { if (sim) { const [w, h] = size(); sim.force("center", d3.forceCenter(w / 2, h / 2)).alpha(0.2).restart(); } });
+window.addEventListener("resize", () => {
+  if (sim) { const [w, h] = size(); sim.force("center", d3.forceCenter(w / 2, h / 2)).alpha(0.2).restart(); }
+  if (tourOn) tourPlace();
+});
+
+// ── Guided tour ─────────────────────────────────────────────────────────────
+// A non-modal spotlight walkthrough: a dimming mask cuts a lit window around the
+// step's target element, with a bubble explaining it. Auto-runs once (persisted
+// in localStorage); replayable via the 🧭 Tour button. Motion respects REDUCED.
+const TOUR_KEY = "ragvault.tourSeen.v1";
+const TOUR_STEPS = [
+  { sel: null, side: "center", title: "Welcome to the RAG Vault 👋",
+    body: "A live knowledge graph of the S&P 500 — supplier, customer and competitor links mined from filings, with a grounded Q&A layer on top. Here's the 30-second tour." },
+  { sel: "#search", side: "right", title: "1 · Find a company",
+    body: "Search any of the 500 companies by ticker or name to fly straight to its node in the graph." },
+  { sel: "#graph", side: "center", focus: "NVDA", title: "2 · The relationship graph",
+    body: "Each node is a company; edges are <b style='color:var(--supplier)'>supplier</b>, <b style='color:var(--customer)'>customer</b> and <b style='color:var(--competitor)'>competitor</b> links. Drag to pan, scroll to zoom. We've selected NVIDIA — watch the supply chain flow along its edges." },
+  { sel: "#detail", side: "right", title: "3 · Inspect a node",
+    body: "Sentiment, valuation metrics, every modeled relationship, and live catalysts (8-K material events + news) for the selected company." },
+  { sel: "#q", side: "right", title: "4 · Ask the vault",
+    body: "Ask in plain English. Answers are retrieved and <b style='color:var(--text)'>grounded in the underlying filings</b>, with citations you can click back onto the graph." },
+  { sel: "#openBt", side: "bottom", title: "5 · Lead-lag backtest",
+    body: "A quant study: does supplier momentum predict customer returns? Sharpe, an information-coefficient heatmap, and a market-neutral equity curve." },
+  { sel: "#openEv", side: "bottom", title: "6 · Event study",
+    body: "Market-adjusted forward returns after each 8-K item type, plus a sentiment lead-lag — the catalyst engine, in numbers." },
+];
+let tourOn = false, tourIdx = -1, tourEls = null;
+function buildTour() {
+  if (tourEls) return;
+  const mask = document.createElement("div"); mask.id = "tourMask";
+  const pop = document.createElement("div"); pop.id = "tourPop";
+  pop.innerHTML =
+    '<h4 id="tourTitle"></h4><p id="tourBody"></p>'
+    + '<div class="tour-foot"><div class="tour-dots" id="tourDots"></div>'
+    + '<button class="t-skip" id="tourSkip">Skip</button>'
+    + '<button class="t-back" id="tourBack">Back</button>'
+    + '<button class="t-next" id="tourNext">Next</button></div>';
+  document.body.append(mask, pop);
+  tourEls = { mask, pop,
+    title: pop.querySelector("#tourTitle"), body: pop.querySelector("#tourBody"),
+    dots: pop.querySelector("#tourDots"), skip: pop.querySelector("#tourSkip"),
+    back: pop.querySelector("#tourBack"), next: pop.querySelector("#tourNext") };
+  tourEls.skip.onclick = () => tourEnd();
+  tourEls.back.onclick = () => tourGo(tourIdx - 1);
+  tourEls.next.onclick = () => tourGo(tourIdx + 1);
+  tourEls.dots.innerHTML = TOUR_STEPS.map((_, i) => `<i data-i="${i}"></i>`).join("");
+  tourEls.dots.querySelectorAll("i").forEach(d => d.onclick = () => tourGo(+d.dataset.i));
+}
+function tourStart() {
+  buildTour();
+  tourOn = true;
+  tourEls.mask.classList.add("on"); tourEls.pop.classList.add("on");
+  tourGo(0);
+}
+function tourEnd() {
+  tourOn = false;
+  try { localStorage.setItem(TOUR_KEY, "1"); } catch (e) {}
+  if (tourEls) { tourEls.mask.classList.remove("on"); tourEls.pop.classList.remove("on"); }
+}
+function tourGo(i) {
+  if (i < 0) return;
+  if (i >= TOUR_STEPS.length) return tourEnd();
+  tourIdx = i;
+  const step = TOUR_STEPS[i];
+  if (step.focus) { const n = byId[step.focus] || nodes.find(n => n._crank === 1); if (n) { selectNode(n); focusNode(n); } }
+  tourEls.title.textContent = step.title;
+  tourEls.body.innerHTML = step.body;
+  tourEls.back.style.visibility = i === 0 ? "hidden" : "visible";
+  tourEls.next.textContent = i === TOUR_STEPS.length - 1 ? "Finish" : "Next";
+  tourEls.dots.querySelectorAll("i").forEach((d, j) => d.classList.toggle("on", j === i));
+  requestAnimationFrame(tourPlace);
+  setTimeout(tourPlace, 130);                  // settle after any zoom/scroll transition
+}
+function tourPlace() {
+  if (!tourOn) return;
+  const step = TOUR_STEPS[tourIdx], { mask, pop } = tourEls;
+  const tgt = step.sel ? document.querySelector(step.sel) : null;
+  const pad = 6, gap = 14, vw = innerWidth, vh = innerHeight;
+  const pw = pop.offsetWidth, ph = pop.offsetHeight;
+  const clamp = (v, max) => Math.max(12, Math.min(v, max - 12));
+  if (!tgt) {                                  // centered hero step — no spotlight
+    mask.classList.remove("on");
+    pop.style.left = clamp((vw - pw) / 2, vw - pw) + "px";
+    pop.style.top = clamp((vh - ph) / 2, vh - ph) + "px";
+    return;
+  }
+  if (tgt.scrollIntoView) tgt.scrollIntoView({ block: "nearest", inline: "nearest" });
+  mask.classList.add("on");
+  const r = tgt.getBoundingClientRect();
+  mask.style.left = (r.left - pad) + "px"; mask.style.top = (r.top - pad) + "px";
+  mask.style.width = (r.width + pad * 2) + "px"; mask.style.height = (r.height + pad * 2) + "px";
+  let left, top;
+  if (step.side === "right") { left = r.right + gap; top = r.top; }
+  else if (step.side === "bottom") { left = r.left; top = r.bottom + gap; }
+  else { left = r.left + r.width / 2 - pw / 2; top = r.bottom - ph - gap; }  // center: lower-center over target
+  if (step.side === "right" && left + pw > vw - 12) { left = r.left - pw - gap; }  // flip if it would overflow
+  pop.style.left = clamp(left, vw - pw) + "px";
+  pop.style.top = clamp(top, vh - ph) + "px";
+}
+document.getElementById("openTour").addEventListener("click", tourStart);
 </script>
 </body>
 </html>
